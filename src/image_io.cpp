@@ -69,6 +69,13 @@ void ViewerApp::LoadImageFromFile(const std::wstring& filePath, bool startAtEnd)
     SetTimer(m_ctx.hWnd, LOADING_TIMER_ID, 700, nullptr);
     m_ctx.loadingFilePath = filePath;
     m_ctx.startAtEnd = startAtEnd;
+
+    // Remember the file as soon as it is opened, so the next launch can restore it.
+    if (m_ctx.lastImagePath != filePath) {
+        m_ctx.lastImagePath = filePath;
+        WritePrivateProfileStringW(L"Settings", L"LastImagePath", filePath.c_str(), m_ctx.settingsPath.c_str());
+        WritePrivateProfileStringW(nullptr, nullptr, nullptr, m_ctx.settingsPath.c_str());
+    }
     {
         std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
 

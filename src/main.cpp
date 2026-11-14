@@ -180,6 +180,14 @@ int ViewerApp::Run(HINSTANCE hInstance, int nCmdShow, LPWSTR lpCmdLine) {
         }
         LoadImageFromFile(filePath);
     }
+    else {
+        const DWORD attrs = m_ctx.lastImagePath.empty()
+            ? INVALID_FILE_ATTRIBUTES
+            : GetFileAttributesW(m_ctx.lastImagePath.c_str());
+        if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+            LoadImageFromFile(m_ctx.lastImagePath);
+        }
+    }
 
     InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
 

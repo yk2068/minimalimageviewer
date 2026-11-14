@@ -215,6 +215,7 @@ struct AppContext {
     bool isDraggingImage = false;
     bool rightClickScrolled = false; 
     std::wstring settingsPath;
+    std::wstring lastImagePath;
     std::wstring currentDirectory;
     SortCriteria currentSortCriteria = SortCriteria::ByName;
     bool isSortAscending = true;

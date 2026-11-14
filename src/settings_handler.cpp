@@ -16,6 +16,10 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     m_ctx.externalEditorPath = editorBuf;
     int ratingFilter = getInt(L"Settings", L"RatingFilter", 0);
     m_ctx.ratingFilter = (ratingFilter < 0 || ratingFilter > 5) ? 0 : ratingFilter;
+    std::vector<wchar_t> lastImageBuf(32768);
+    GetPrivateProfileStringW(L"Settings", L"LastImagePath", L"", lastImageBuf.data(),
+        static_cast<DWORD>(lastImageBuf.size()), path.c_str());
+    m_ctx.lastImagePath = lastImageBuf.data();
     LoadRatings(path);
     m_ctx.enableFadeAnimation = getInt(L"Settings", L"EnableFadeAnimation", 1) == 1;
     m_ctx.isOsdVisible = getInt(L"Settings", L"ShowOSD", 0) == 1;
@@ -79,6 +83,7 @@ void ViewerApp::WriteSettings(const std::wstring& path, const WINDOWPLACEMENT& w
     writeInt(L"Settings", L"SmoothScaling", m_ctx.smoothScaling ? 1 : 0);
     WritePrivateProfileStringW(L"Settings", L"ExternalEditorPath", m_ctx.externalEditorPath.c_str(), path.c_str());
     writeInt(L"Settings", L"RatingFilter", m_ctx.ratingFilter);
+    WritePrivateProfileStringW(L"Settings", L"LastImagePath", m_ctx.lastImagePath.c_str(), path.c_str());
     writeInt(L"Settings", L"EnableFadeAnimation", m_ctx.enableFadeAnimation ? 1 : 0);
     writeInt(L"Settings", L"ShowOSD", m_ctx.isOsdVisible ? 1 : 0);
     writeInt(L"Settings", L"AskToDelete", m_ctx.askToDelete ? 1 : 0);
