@@ -81,5 +81,22 @@
 #define IDC_STATIC_LANGUAGE         2034
 #define IDC_COMBO_LANGUAGE          2035
 #define IDC_CHECK_WRAP_AROUND       2036
+#define IDC_EDIT_EXTERNAL_PATH      2037
+
+#define IDM_OPEN_EXTERNAL           1078
+#define IDM_RATE_0                  1079
+#define IDM_RATE_1                  1080
+#define IDM_RATE_2                  1081
+#define IDM_RATE_3                  1082
+#define IDM_RATE_4                  1083
+#define IDM_RATE_5                  1084
+#define IDM_SORT_BY_RATING_ASC      1085
+#define IDM_SORT_BY_RATING_DESC     1086
+#define IDM_FILTER_RATING_ALL       1087
+#define IDM_FILTER_RATING_1         1088
+#define IDM_FILTER_RATING_2         1089
+#define IDM_FILTER_RATING_3         1090
+#define IDM_FILTER_RATING_4         1091
+#define IDM_FILTER_RATING_5         1092
 
 #define IDC_STATIC                  -1

@@ -1,4 +1,5 @@
 ﻿#include "viewer.h"
+#include <propkey.h>
 
 
 
@@ -69,6 +70,11 @@ void ViewerApp::DeleteCurrentImage() {
 
                         if (!aborted) {
                             m_ctx.imageFiles.erase(m_ctx.imageFiles.begin() + m_ctx.currentImageIndex);
+                            auto allIt = std::ranges::find_if(m_ctx.allImageFiles,
+                                [&](const std::wstring& s) { return _wcsicmp(s.c_str(), filePath.c_str()) == 0; });
+                            if (allIt != m_ctx.allImageFiles.end()) {
+                                m_ctx.allImageFiles.erase(allIt);
+                            }
 
                             if (m_ctx.imageFiles.empty()) {
                                 m_ctx.currentImageIndex = -1;
@@ -300,4 +306,136 @@ void ViewerApp::RegisterFileAssociations() {
 
     // Notify shell
     SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+}
+
+std::wstring ViewerApp::CurrentImagePath() const {
+    if (m_ctx.currentImageIndex >= 0 &&
+        m_ctx.currentImageIndex < static_cast<int>(m_ctx.imageFiles.size())) {
+        return m_ctx.imageFiles[m_ctx.currentImageIndex];
+    }
+    return m_ctx.loadingFilePath;
+}
+
+void ViewerApp::OpenExternalAction() {
+    const std::wstring path = CurrentImagePath();
+    if (path.empty()) return;
+
+    const std::wstring editor = m_ctx.externalEditorPath.empty()
+        ? L"mspaint.exe"
+        : m_ctx.externalEditorPath;
+    const std::wstring params = L"\"" + path + L"\"";
+
+    HINSTANCE result = ShellExecuteW(
+        m_ctx.hWnd, L"open", editor.c_str(), params.c_str(), nullptr, SW_SHOWNORMAL
+    );
+    if (reinterpret_cast<INT_PTR>(result) <= 32) {
+        MessageBoxW(
+            m_ctx.hWnd,
+            L"Could not launch the external editor. Check its path in Preferences.",
+            L"External Editor",
+            MB_OK | MB_ICONWARNING
+        );
+    }
+}
+
+// Portable ratings live in the same INI as the rest of the settings.
+static std::wstring RatingKey(const std::wstring& path) {
+    std::wstring key;
+    key.reserve(path.size());
+    for (wchar_t c : path) {
+        if (c >= L'A' && c <= L'Z') c = c - L'A' + L'a';
+        if (c == L'=') {
+            key += L"%3D";
+        }
+        else {
+            key += c;
+        }
+    }
+    return key;
+}
+
+void ViewerApp::LoadRatings(const std::wstring& iniPath) {
+    std::lock_guard<std::mutex> lock(m_ctx.ratingsMutex);
+    m_ctx.ratings.clear();
+    std::vector<wchar_t> buffer(65536);
+    GetPrivateProfileSectionW(
+        L"Ratings", buffer.data(), static_cast<DWORD>(buffer.size()), iniPath.c_str()
+    );
+    wchar_t* entry = buffer.data();
+    while (entry && *entry) {
+        std::wstring line(entry);
+        const size_t sep = line.find(L'=');
+        if (sep != std::wstring::npos) {
+            const int value = _wtoi(line.c_str() + sep + 1);
+            if (value >= 0 && value <= 5) {
+                m_ctx.ratings[line.substr(0, sep)] = value;
+            }
+        }
+        entry += line.length() + 1;
+    }
+}
+
+void ViewerApp::SaveRating(const std::wstring& path, int rating) {
+    std::lock_guard<std::mutex> lock(m_ctx.ratingsMutex);
+    const std::wstring key = RatingKey(path);
+    m_ctx.ratings[key] = rating;
+    WritePrivateProfileStringW(
+        L"Ratings", key.c_str(), std::to_wstring(rating).c_str(), m_ctx.settingsPath.c_str()
+    );
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, m_ctx.settingsPath.c_str());
+
+    // Also expose the rating to Windows Explorer when the file format supports it.
+    ComPtr<IPropertyStore> store;
+    if (SUCCEEDED(SHGetPropertyStoreFromParsingName(path.c_str(), nullptr, GPS_READWRITE, IID_PPV_ARGS(&store)))) {
+        PROPVARIANT var = {};
+        var.vt = VT_UI4;
+        var.ulVal = rating == 0 ? 0 : static_cast<ULONG>((rating - 1) * 25 + 1);
+        store->SetValue(PKEY_Rating, var);
+        store->Commit();
+    }
+}
+
+int ViewerApp::GetRating(const std::wstring& path) {
+    if (path.empty()) return 0;
+    std::lock_guard<std::mutex> lock(m_ctx.ratingsMutex);
+    const auto it = m_ctx.ratings.find(RatingKey(path));
+    return it != m_ctx.ratings.end() ? it->second : 0;
+}
+
+void ViewerApp::ApplyRatingFilter(const std::wstring& currentFile) {
+    m_ctx.imageFiles.clear();
+    for (const auto& file : m_ctx.allImageFiles) {
+        if (m_ctx.ratingFilter == 0 || GetRating(file) >= m_ctx.ratingFilter) {
+            m_ctx.imageFiles.push_back(file);
+        }
+    }
+
+    m_ctx.currentImageIndex = -1;
+    if (!m_ctx.imageFiles.empty()) {
+        auto it = std::ranges::find_if(
+            m_ctx.imageFiles,
+            [&](const std::wstring& s) { return _wcsicmp(s.c_str(), currentFile.c_str()) == 0; }
+        );
+        m_ctx.currentImageIndex = (it != m_ctx.imageFiles.end())
+            ? static_cast<int>(std::distance(m_ctx.imageFiles.begin(), it))
+            : 0;
+    }
+}
+
+void ViewerApp::SetCurrentRating(int rating) {
+    const std::wstring path = CurrentImagePath();
+    if (path.empty()) return;
+
+    SaveRating(path, rating);
+    m_ctx.isOsdCacheValid = false;
+
+    if (m_ctx.ratingFilter > 0 && !m_ctx.allImageFiles.empty()) {
+        ApplyRatingFilter(path);
+        if (m_ctx.currentImageIndex >= 0 &&
+            _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), path.c_str()) != 0) {
+            LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
+        }
+    }
+
+    InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
 }

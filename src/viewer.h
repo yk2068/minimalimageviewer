@@ -23,6 +23,7 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <unordered_map>
 #include <cmath>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -84,7 +85,8 @@ enum class BackgroundColor {
 enum class SortCriteria {
     ByName = 0,
     ByDateModified = 1,
-    ByFileSize = 2
+    ByFileSize = 2,
+    ByRating = 3
 };
 
 enum class DefaultZoomMode {
@@ -98,6 +100,7 @@ enum ActionID {
     Act_Open, Act_Refresh, Act_Copy, Act_Paste, Act_Save, Act_SaveAs, Act_Delete, Act_Undo,
     Act_CenterImage, Act_CommitCrop, Act_ToggleOSD, Act_PlayPause, Act_ResumeAnim,
     Act_AnimNext, Act_AnimPrev, Act_AnimFirst, Act_ContextMenu, Act_Slideshow,
+    Act_OpenExternal,
     Act_Count
 };
 
@@ -307,6 +310,11 @@ struct AppContext {
     bool isSlideshowActive = false;
     int slideshowIntervalSeconds = 3;
     bool smoothScaling = true;
+    std::wstring externalEditorPath = L"mspaint.exe";
+    std::unordered_map<std::wstring, int> ratings;
+    std::mutex ratingsMutex;
+    int ratingFilter = 0;
+    std::vector<std::wstring> allImageFiles;
     bool enableFadeAnimation = true;
     bool askToDelete = true;
     bool preserveZoomOnResize = false;
@@ -389,6 +397,13 @@ public:
     void OpenFileLocationAction();
     void SetWallpaper();
     void ShowImageProperties();
+    void OpenExternalAction();
+    void SetCurrentRating(int rating);
+    int GetRating(const std::wstring& path);
+    void LoadRatings(const std::wstring& iniPath);
+    void SaveRating(const std::wstring& path, int rating);
+    void ApplyRatingFilter(const std::wstring& currentFile);
+    std::wstring CurrentImagePath() const;
     void OpenPreferencesDialog();
     void OpenKeybindingsDialog();
     std::wstring GetHotkeyString(WORD hk);
@@ -434,6 +449,7 @@ private:
 
     // Drawing Helpers
     void DrawOsdOverlay(ID2D1DeviceContext* renderTarget);
+    void DrawIndexOverlay(ID2D1DeviceContext* renderTarget);
 
     // Edit Helpers
     inline ComPtr<IWICFormatConverter> ConvertToFormat(

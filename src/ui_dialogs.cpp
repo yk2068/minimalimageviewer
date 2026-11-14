@@ -83,6 +83,7 @@ INT_PTR CALLBACK ViewerApp::PreferencesDialogProc(HWND hDlg, UINT message, WPARA
         setCheck(IDC_CHECK_ASK_DELETE, ctx.askToDelete);
         setCheck(IDC_CHECK_PRESERVE_ZOOM, ctx.preserveZoomOnResize);
         setCheck(IDC_CHECK_WRAP_AROUND, ctx.wrapAroundNavigation);
+        SetDlgItemTextW(hDlg, IDC_EDIT_EXTERNAL_PATH, ctx.externalEditorPath.c_str());
 
         CheckRadioButton(
             hDlg,
@@ -191,6 +192,10 @@ INT_PTR CALLBACK ViewerApp::PreferencesDialogProc(HWND hDlg, UINT message, WPARA
             int selIdx = static_cast<int>(SendMessageW(hCombo, CB_GETCURSEL, 0, 0));
             extern int g_languageOverride;
             g_languageOverride = (selIdx > 0) ? (selIdx - 1) : -1;
+
+            wchar_t extBuf[MAX_PATH] = {};
+            GetDlgItemTextW(hDlg, IDC_EDIT_EXTERNAL_PATH, extBuf, MAX_PATH);
+            ctx.externalEditorPath = extBuf[0] ? extBuf : L"mspaint.exe";
 
             ctx.isOsdCacheValid = false; // Force OSD text to regenerate in the new language
 
@@ -304,7 +309,8 @@ static const wchar_t* ActionNames[] = {
     L"Fullscreen", L"Rotate Clockwise", L"Rotate Counter-Clockwise", L"Flip", L"Crop", L"Custom Zoom", L"Exit",
     L"Open File", L"Refresh", L"Copy", L"Paste", L"Save", L"Save As", L"Delete Image", L"Undo",
     L"Center Image", L"Commit Crop", L"Toggle OSD", L"Play/Pause Animation", L"Resume Animation",
-    L"Next Frame", L"Previous Frame", L"First Frame", L"Open Context Menu", L"Toggle Slideshow"
+    L"Next Frame", L"Previous Frame", L"First Frame", L"Open Context Menu", L"Toggle Slideshow",
+    L"Open External Editor"
 };
 
 INT_PTR CALLBACK ViewerApp::KeybindingsDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {

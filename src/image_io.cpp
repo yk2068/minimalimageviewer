@@ -88,6 +88,7 @@ void ViewerApp::LoadImageFromFile(const std::wstring& filePath, bool startAtEnd)
     PathRemoveFileSpecW(folder);
     if (m_ctx.currentDirectory != folder) {
         m_ctx.imageFiles.clear();
+        m_ctx.allImageFiles.clear();
         m_ctx.currentImageIndex = -1;
         m_ctx.currentDirectory = folder;
     }
@@ -726,6 +727,7 @@ std::vector<std::wstring> ViewerApp::ScanDirectory(const std::wstring& directory
         std::wstring path;
         fs::file_time_type writeTime{};
         uintmax_t fileSize = 0;
+        int rating = 0;
     };
 
     std::vector<FileInfo> foundFiles;
@@ -750,6 +752,7 @@ std::vector<std::wstring> ViewerApp::ScanDirectory(const std::wstring& directory
                 info.path = std::move(fullPath);
                 info.writeTime = entry.last_write_time(ec);
                 info.fileSize = entry.file_size(ec);
+                info.rating = GetRating(info.path);
                 foundFiles.push_back(info);
             }
         }
@@ -766,6 +769,12 @@ std::vector<std::wstring> ViewerApp::ScanDirectory(const std::wstring& directory
             break;
         case SortCriteria::ByFileSize:
             cmp = a.fileSize <=> b.fileSize;
+            break;
+        case SortCriteria::ByRating:
+            cmp = a.rating <=> b.rating;
+            if (cmp == std::strong_ordering::equal) {
+                cmp = StrCmpLogicalW(a.path.c_str(), b.path.c_str()) <=> 0;
+            }
             break;
         case SortCriteria::ByName:
         default:
@@ -966,6 +975,7 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
                 }
                 else {
                     m_ctx.imageFiles.push_back(m_ctx.loadingFilePath);
+                    m_ctx.allImageFiles.push_back(m_ctx.loadingFilePath);
                     m_ctx.currentImageIndex = static_cast<int>(m_ctx.imageFiles.size() - 1);
                 }
             }
@@ -988,8 +998,12 @@ void ViewerApp::OnDirReady(int seqId) {
     if (m_ctx.loadSequenceId != seqId) return;
     {
        std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
-        m_ctx.imageFiles = std::move(m_ctx.stagedImageFiles);
-        m_ctx.currentImageIndex = m_ctx.stagedFoundIndex;
+        m_ctx.allImageFiles = std::move(m_ctx.stagedImageFiles);
+    }
+    ApplyRatingFilter(m_ctx.loadingFilePath);
+    if (m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty() &&
+        _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), m_ctx.loadingFilePath.c_str()) != 0) {
+        LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
     }
     StartPreloading();
 }

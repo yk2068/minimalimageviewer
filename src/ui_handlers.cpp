@@ -124,6 +124,13 @@ void ViewerApp::HandleCommand(WORD cmd) {
     case IDM_PREFERENCES:   OpenPreferencesDialog(); break;
     case IDM_KEYBINDINGS:   OpenKeybindingsDialog(); break;
     case IDM_CUSTOM_ZOOM:   OpenZoomDialog(); break;
+    case IDM_OPEN_EXTERNAL: OpenExternalAction(); break;
+    case IDM_RATE_0:        SetCurrentRating(0); break;
+    case IDM_RATE_1:        SetCurrentRating(1); break;
+    case IDM_RATE_2:        SetCurrentRating(2); break;
+    case IDM_RATE_3:        SetCurrentRating(3); break;
+    case IDM_RATE_4:        SetCurrentRating(4); break;
+    case IDM_RATE_5:        SetCurrentRating(5); break;
     case IDM_CONTEXT_MENU: {
         RECT rc;
         GetClientRect(m_ctx.hWnd, &rc);
@@ -208,21 +215,47 @@ void ViewerApp::HandleCommand(WORD cmd) {
     case IDM_SORT_BY_DATE_DESC:
     case IDM_SORT_BY_SIZE_ASC:
     case IDM_SORT_BY_SIZE_DESC:
+    case IDM_SORT_BY_RATING_ASC:
+    case IDM_SORT_BY_RATING_DESC:
     {
         std::wstring currentFile;
         if (m_ctx.currentImageIndex >= 0 && m_ctx.currentImageIndex < static_cast<int>(m_ctx.imageFiles.size())) {
             currentFile = m_ctx.imageFiles[m_ctx.currentImageIndex];
         }
 
-        m_ctx.isSortAscending = (cmd == IDM_SORT_BY_NAME_ASC || cmd == IDM_SORT_BY_DATE_ASC || cmd == IDM_SORT_BY_SIZE_ASC);
+        m_ctx.isSortAscending = (cmd == IDM_SORT_BY_NAME_ASC || cmd == IDM_SORT_BY_DATE_ASC ||
+            cmd == IDM_SORT_BY_SIZE_ASC || cmd == IDM_SORT_BY_RATING_ASC);
         if (cmd == IDM_SORT_BY_NAME_ASC || cmd == IDM_SORT_BY_NAME_DESC) m_ctx.currentSortCriteria = SortCriteria::ByName;
         else if (cmd == IDM_SORT_BY_DATE_ASC || cmd == IDM_SORT_BY_DATE_DESC) m_ctx.currentSortCriteria = SortCriteria::ByDateModified;
+        else if (cmd == IDM_SORT_BY_RATING_ASC || cmd == IDM_SORT_BY_RATING_DESC) m_ctx.currentSortCriteria = SortCriteria::ByRating;
         else m_ctx.currentSortCriteria = SortCriteria::ByFileSize;
 
         if (!m_ctx.currentDirectory.empty()) {
             m_ctx.imageFiles.clear();
+            m_ctx.allImageFiles.clear();
             LoadImageFromFile(currentFile);
         }
+        break;
+    }
+    case IDM_FILTER_RATING_ALL:
+    case IDM_FILTER_RATING_1:
+    case IDM_FILTER_RATING_2:
+    case IDM_FILTER_RATING_3:
+    case IDM_FILTER_RATING_4:
+    case IDM_FILTER_RATING_5:
+    {
+        m_ctx.ratingFilter = (cmd == IDM_FILTER_RATING_ALL)
+            ? 0
+            : (cmd - IDM_FILTER_RATING_1 + 1);
+        const std::wstring currentFile = CurrentImagePath();
+        if (!m_ctx.allImageFiles.empty()) {
+            ApplyRatingFilter(currentFile);
+            if (m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty() &&
+                _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), currentFile.c_str()) != 0) {
+                LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
+            }
+        }
+        InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
         break;
     }
     }
@@ -267,7 +300,26 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
     addSortItem(IDM_SORT_BY_DATE_DESC, SortCriteria::ByDateModified, false, Tr(StrId::SortDateDesc));
     addSortItem(IDM_SORT_BY_SIZE_ASC, SortCriteria::ByFileSize, true, Tr(StrId::SortSizeAsc));
     addSortItem(IDM_SORT_BY_SIZE_DESC, SortCriteria::ByFileSize, false, Tr(StrId::SortSizeDesc));
+    addSortItem(IDM_SORT_BY_RATING_ASC, SortCriteria::ByRating, true, L"Rating (low to high)");
+    addSortItem(IDM_SORT_BY_RATING_DESC, SortCriteria::ByRating, false, L"Rating (high to low)");
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSortMenu, Tr(StrId::SortBy));
+
+    HMENU hRatingMenu = CreatePopupMenu();
+    auto addFilterItem = [&](UINT id, int minRating, LPCWSTR text) {
+        AppendMenuW(
+            hRatingMenu,
+            MF_STRING | (m_ctx.ratingFilter == minRating ? MF_CHECKED : MF_UNCHECKED),
+            id,
+            text
+        );
+        };
+    addFilterItem(IDM_FILTER_RATING_ALL, 0, L"All images");
+    addFilterItem(IDM_FILTER_RATING_1, 1, L"1 star and up");
+    addFilterItem(IDM_FILTER_RATING_2, 2, L"2 stars and up");
+    addFilterItem(IDM_FILTER_RATING_3, 3, L"3 stars and up");
+    addFilterItem(IDM_FILTER_RATING_4, 4, L"4 stars and up");
+    addFilterItem(IDM_FILTER_RATING_5, 5, L"5 stars only");
+    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hRatingMenu, L"Rating Filter");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
     HMENU hEditMenu = CreatePopupMenu();
@@ -291,6 +343,7 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hViewMenu, Tr(StrId::View));
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    addAction(hMenu, IDM_OPEN_EXTERNAL, Act_OpenExternal, L"Open in External Editor");
     addRaw(hMenu, IDM_SAVE, Tr(StrId::Save), L"Ctrl+S");
     addRaw(hMenu, IDM_SAVE_AS, Tr(StrId::SaveAs), L"Ctrl+Shift+S");
     AppendMenuW(hMenu, MF_STRING, IDM_SET_WALLPAPER, Tr(StrId::SetWallpaper));

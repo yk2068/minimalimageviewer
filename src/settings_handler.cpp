@@ -11,6 +11,12 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     singleInstance = getInt(L"Settings", L"EnforceSingleInstance", 1) == 1;
     m_ctx.alwaysOnTop = getInt(L"Settings", L"AlwaysOnTop", 0) == 1;
     m_ctx.smoothScaling = getInt(L"Settings", L"SmoothScaling", 1) == 1;
+    wchar_t editorBuf[MAX_PATH] = {};
+    GetPrivateProfileStringW(L"Settings", L"ExternalEditorPath", L"mspaint.exe", editorBuf, MAX_PATH, path.c_str());
+    m_ctx.externalEditorPath = editorBuf;
+    int ratingFilter = getInt(L"Settings", L"RatingFilter", 0);
+    m_ctx.ratingFilter = (ratingFilter < 0 || ratingFilter > 5) ? 0 : ratingFilter;
+    LoadRatings(path);
     m_ctx.enableFadeAnimation = getInt(L"Settings", L"EnableFadeAnimation", 1) == 1;
     m_ctx.isOsdVisible = getInt(L"Settings", L"ShowOSD", 0) == 1;
     m_ctx.askToDelete = getInt(L"Settings", L"AskToDelete", 1) == 1;
@@ -29,7 +35,7 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     m_ctx.defaultZoomMode = static_cast<DefaultZoomMode>((zoomChoice < 0 || zoomChoice > 1) ? 0 : zoomChoice);
 
     int sortChoice = getInt(L"Settings", L"SortCriteria", 0);
-    m_ctx.currentSortCriteria = static_cast<SortCriteria>((sortChoice < 0 || sortChoice > 2) ? 0 : sortChoice);
+    m_ctx.currentSortCriteria = static_cast<SortCriteria>((sortChoice < 0 || sortChoice > 3) ? 0 : sortChoice);
 
     m_ctx.isSortAscending = getInt(L"Settings", L"SortAscending", 1) == 1;
     wp.length = sizeof(WINDOWPLACEMENT);
@@ -41,12 +47,12 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     const wchar_t* keyNames[Act_Count] = {
         L"Next", L"Prev", L"ZoomIn", L"ZoomOut", L"Fit", L"Actual", L"Fullscreen", L"RotateCW", L"RotateCCW", L"Flip", L"Crop", L"CustomZoom", L"Exit",
         L"Open", L"Refresh", L"Copy", L"Paste", L"Save", L"SaveAs", L"Delete", L"Undo", L"CenterImage", L"CommitCrop", L"ToggleOSD", L"PlayPause", L"ResumeAnim",
-        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow"
+        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow", L"OpenExternal"
     };
     const WORD defaultKeys[Act_Count] = {
-        MAKEWORD(VK_RIGHT, HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_EXT), MAKEWORD(VK_ADD, HOTKEYF_CONTROL), MAKEWORD(VK_SUBTRACT, HOTKEYF_CONTROL), MAKEWORD('0', HOTKEYF_CONTROL), MAKEWORD(VK_MULTIPLY, HOTKEYF_CONTROL), VK_F11, MAKEWORD(VK_UP, HOTKEYF_EXT), MAKEWORD(VK_DOWN, HOTKEYF_EXT), 'F', 'C', MAKEWORD('Z', HOTKEYF_CONTROL | HOTKEYF_SHIFT), VK_ESCAPE,
+        MAKEWORD(VK_RIGHT, HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_EXT), MAKEWORD(VK_ADD, HOTKEYF_CONTROL), MAKEWORD(VK_SUBTRACT, HOTKEYF_CONTROL), MAKEWORD('0', HOTKEYF_CONTROL | HOTKEYF_SHIFT), MAKEWORD(VK_MULTIPLY, HOTKEYF_CONTROL), VK_F11, MAKEWORD(VK_UP, HOTKEYF_EXT), MAKEWORD(VK_DOWN, HOTKEYF_EXT), 'F', 'C', MAKEWORD('Z', HOTKEYF_CONTROL | HOTKEYF_SHIFT), VK_ESCAPE,
         MAKEWORD('O', HOTKEYF_CONTROL), VK_F5, MAKEWORD('C', HOTKEYF_CONTROL), MAKEWORD('V', HOTKEYF_CONTROL), MAKEWORD('S', HOTKEYF_CONTROL), MAKEWORD('S', HOTKEYF_CONTROL | HOTKEYF_SHIFT), MAKEWORD(VK_DELETE, HOTKEYF_EXT), MAKEWORD('Z', HOTKEYF_CONTROL), 0, VK_RETURN, 'I', VK_SPACE, MAKEWORD(VK_SPACE, HOTKEYF_SHIFT),
-        MAKEWORD(VK_RIGHT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_UP, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_F10, HOTKEYF_SHIFT), 'P'
+        MAKEWORD(VK_RIGHT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_UP, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_F10, HOTKEYF_SHIFT), 'P', 'E'
     };
     for (int i = 0; i < Act_Count; ++i) {
         m_ctx.hotkeys[i] = (WORD)getInt(L"Keys", keyNames[i], defaultKeys[i]);
@@ -71,6 +77,8 @@ void ViewerApp::WriteSettings(const std::wstring& path, const WINDOWPLACEMENT& w
     writeInt(L"Settings", L"EnforceSingleInstance", singleInstance ? 1 : 0);
     writeInt(L"Settings", L"AlwaysOnTop", alwaysOnTop ? 1 : 0);
     writeInt(L"Settings", L"SmoothScaling", m_ctx.smoothScaling ? 1 : 0);
+    WritePrivateProfileStringW(L"Settings", L"ExternalEditorPath", m_ctx.externalEditorPath.c_str(), path.c_str());
+    writeInt(L"Settings", L"RatingFilter", m_ctx.ratingFilter);
     writeInt(L"Settings", L"EnableFadeAnimation", m_ctx.enableFadeAnimation ? 1 : 0);
     writeInt(L"Settings", L"ShowOSD", m_ctx.isOsdVisible ? 1 : 0);
     writeInt(L"Settings", L"AskToDelete", m_ctx.askToDelete ? 1 : 0);
@@ -89,7 +97,7 @@ void ViewerApp::WriteSettings(const std::wstring& path, const WINDOWPLACEMENT& w
     const wchar_t* keyNames[Act_Count] = {
         L"Next", L"Prev", L"ZoomIn", L"ZoomOut", L"Fit", L"Actual", L"Fullscreen", L"RotateCW", L"RotateCCW", L"Flip", L"Crop", L"CustomZoom", L"Exit",
         L"Open", L"Refresh", L"Copy", L"Paste", L"Save", L"SaveAs", L"Delete", L"Undo", L"CenterImage", L"CommitCrop", L"ToggleOSD", L"PlayPause", L"ResumeAnim",
-        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow"
+        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow", L"OpenExternal"
     };
     for (int i = 0; i < Act_Count; ++i) {
         writeInt(L"Keys", keyNames[i], m_ctx.hotkeys[i]);
@@ -118,6 +126,15 @@ void ViewerApp::UpdateAcceleratorTable() {
         accels.push_back(a);
         };
 
+    // Ctrl+0 clears the rating, Ctrl+1..5 assign stars. Registered first so
+    // a saved Ctrl+0 from older configs cannot steal the clear-rating shortcut.
+    const WORD ratingCmds[6] = {
+        IDM_RATE_0, IDM_RATE_1, IDM_RATE_2, IDM_RATE_3, IDM_RATE_4, IDM_RATE_5
+    };
+    for (WORD vk = '0'; vk <= '5'; ++vk) {
+        addAccel(vk, HOTKEYF_CONTROL, ratingCmds[vk - '0']);
+    }
+
     // Map all configurable actions dynamically
     WORD actionCmds[Act_Count] = {
         IDM_NEXT_IMG, IDM_PREV_IMG, IDM_ZOOM_IN, IDM_ZOOM_OUT, IDM_FIT_TO_WINDOW,
@@ -125,7 +142,7 @@ void ViewerApp::UpdateAcceleratorTable() {
         IDM_CROP, IDM_CUSTOM_ZOOM, IDM_EXIT,
         IDM_OPEN, IDM_REFRESH, IDM_COPY, IDM_PASTE, IDM_SAVE, IDM_SAVE_AS, IDM_DELETE_IMG, IDM_UNDO,
         IDM_CENTER_IMAGE, IDM_COMMIT_CROP, IDM_TOGGLE_OSD, IDM_PLAY_PAUSE, IDM_RESUME_ANIM,
-        IDM_ANIM_NEXT_FRAME, IDM_ANIM_PREV_FRAME, IDM_ANIM_FIRST_FRAME, IDM_CONTEXT_MENU, IDM_SLIDESHOW
+        IDM_ANIM_NEXT_FRAME, IDM_ANIM_PREV_FRAME, IDM_ANIM_FIRST_FRAME, IDM_CONTEXT_MENU, IDM_SLIDESHOW, IDM_OPEN_EXTERNAL
     };
 
     for (int i = 0; i < Act_Count; ++i) {
