@@ -11,6 +11,7 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     singleInstance = getInt(L"Settings", L"EnforceSingleInstance", 1) == 1;
     m_ctx.alwaysOnTop = getInt(L"Settings", L"AlwaysOnTop", 0) == 1;
     m_ctx.smoothScaling = getInt(L"Settings", L"SmoothScaling", 1) == 1;
+    m_ctx.showImageIndex = getInt(L"Settings", L"ShowImageIndex", 1) == 1;
     wchar_t editorBuf[MAX_PATH] = {};
     GetPrivateProfileStringW(L"Settings", L"ExternalEditorPath", L"mspaint.exe", editorBuf, MAX_PATH, path.c_str());
     m_ctx.externalEditorPath = editorBuf;
@@ -81,6 +82,7 @@ void ViewerApp::WriteSettings(const std::wstring& path, const WINDOWPLACEMENT& w
     writeInt(L"Settings", L"EnforceSingleInstance", singleInstance ? 1 : 0);
     writeInt(L"Settings", L"AlwaysOnTop", alwaysOnTop ? 1 : 0);
     writeInt(L"Settings", L"SmoothScaling", m_ctx.smoothScaling ? 1 : 0);
+    writeInt(L"Settings", L"ShowImageIndex", m_ctx.showImageIndex ? 1 : 0);
     WritePrivateProfileStringW(L"Settings", L"ExternalEditorPath", m_ctx.externalEditorPath.c_str(), path.c_str());
     writeInt(L"Settings", L"RatingFilter", m_ctx.ratingFilter);
     WritePrivateProfileStringW(L"Settings", L"LastImagePath", m_ctx.lastImagePath.c_str(), path.c_str());

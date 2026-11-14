@@ -226,21 +226,19 @@ void ViewerApp::DrawOsdOverlay(ID2D1DeviceContext* renderTarget) {
 }
 
 void ViewerApp::DrawIndexOverlay(ID2D1DeviceContext* renderTarget) {
-    if (m_ctx.currentImageIndex < 0 || m_ctx.imageFiles.empty() ||
+    if (!m_ctx.showImageIndex || m_ctx.currentImageIndex < 0 || m_ctx.imageFiles.empty() ||
         !m_ctx.textFormat || !m_ctx.textBrush) {
+        return;
+    }
+    // Visible while the context menu is open, or briefly after switching images.
+    if (!m_ctx.isIndexPinned && GetTickCount64() >= m_ctx.indexHintUntil) {
         return;
     }
 
     const float dpiScale = GetDpiForWindow(m_ctx.hWnd) / 96.0f;
     const D2D1_SIZE_F rtSize = renderTarget->GetSize();
 
-    std::wstring label = std::format(L"{} / {}", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size());
-    const int rating = GetRating(CurrentImagePath());
-    label += L"   ";
-    for (int i = 0; i < 5; ++i) label += (i < rating ? L"★" : L"☆");
-    if (m_ctx.ratingFilter > 0) {
-        label += std::format(L"   [{}+]", m_ctx.ratingFilter);
-    }
+    const std::wstring label = std::format(L"{} / {}", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size());
 
     const float barWidth = 230.0f * dpiScale;
     const float barHeight = 24.0f * dpiScale;

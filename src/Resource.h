@@ -82,6 +82,7 @@
 #define IDC_COMBO_LANGUAGE          2035
 #define IDC_CHECK_WRAP_AROUND       2036
 #define IDC_EDIT_EXTERNAL_PATH      2037
+#define IDC_CHECK_SHOW_IMAGE_INDEX  2038
 
 #define IDM_OPEN_EXTERNAL           1078
 #define IDM_RATE_0                  1079

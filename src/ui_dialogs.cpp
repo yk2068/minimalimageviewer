@@ -83,6 +83,7 @@ INT_PTR CALLBACK ViewerApp::PreferencesDialogProc(HWND hDlg, UINT message, WPARA
         setCheck(IDC_CHECK_ASK_DELETE, ctx.askToDelete);
         setCheck(IDC_CHECK_PRESERVE_ZOOM, ctx.preserveZoomOnResize);
         setCheck(IDC_CHECK_WRAP_AROUND, ctx.wrapAroundNavigation);
+        setCheck(IDC_CHECK_SHOW_IMAGE_INDEX, ctx.showImageIndex);
         SetDlgItemTextW(hDlg, IDC_EDIT_EXTERNAL_PATH, ctx.externalEditorPath.c_str());
 
         CheckRadioButton(
@@ -180,6 +181,7 @@ INT_PTR CALLBACK ViewerApp::PreferencesDialogProc(HWND hDlg, UINT message, WPARA
             ctx.askToDelete = (IsDlgButtonChecked(hDlg, IDC_CHECK_ASK_DELETE) == BST_CHECKED);
             ctx.preserveZoomOnResize = (IsDlgButtonChecked(hDlg, IDC_CHECK_PRESERVE_ZOOM) == BST_CHECKED);
             ctx.wrapAroundNavigation = (IsDlgButtonChecked(hDlg, IDC_CHECK_WRAP_AROUND) == BST_CHECKED);
+            ctx.showImageIndex = (IsDlgButtonChecked(hDlg, IDC_CHECK_SHOW_IMAGE_INDEX) == BST_CHECKED);
 
             if (IsDlgButtonChecked(hDlg, IDC_RADIO_ZOOM_FIT)) {
                 ctx.defaultZoomMode = DefaultZoomMode::Fit;

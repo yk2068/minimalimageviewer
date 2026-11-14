@@ -74,6 +74,7 @@ constexpr UINT LOADING_TIMER_ID = 4;
 constexpr UINT NAV_DEBOUNCE_TIMER_ID = 6;
 constexpr UINT KEYBINDING_TIMER_ID = 7;
 constexpr UINT SLIDESHOW_TIMER_ID = 8;
+constexpr UINT INDEX_HINT_TIMER_ID = 9;
 
 enum class BackgroundColor {
     Grey = 0,
@@ -311,6 +312,9 @@ struct AppContext {
     bool isSlideshowActive = false;
     int slideshowIntervalSeconds = 3;
     bool smoothScaling = true;
+    bool showImageIndex = true;
+    bool isIndexPinned = false;
+    ULONGLONG indexHintUntil = 0;
     std::wstring externalEditorPath = L"mspaint.exe";
     std::unordered_map<std::wstring, int> ratings;
     std::mutex ratingsMutex;
@@ -451,6 +455,7 @@ private:
     // Drawing Helpers
     void DrawOsdOverlay(ID2D1DeviceContext* renderTarget);
     void DrawIndexOverlay(ID2D1DeviceContext* renderTarget);
+    void FlashIndexHint();
 
     // Edit Helpers
     inline ComPtr<IWICFormatConverter> ConvertToFormat(

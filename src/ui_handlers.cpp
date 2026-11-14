@@ -365,8 +365,14 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
         CheckMenuItem(hMenu, IDM_SLIDESHOW, MF_BYCOMMAND | MF_CHECKED);
     }
 
+    m_ctx.isIndexPinned = m_ctx.showImageIndex;
+    InvalidateRect(hWnd, nullptr, FALSE);
+
     int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, hWnd, nullptr);
     DestroyMenu(hMenu);
+
+    m_ctx.isIndexPinned = false;
+    InvalidateRect(hWnd, nullptr, FALSE);
 
     if (cmd > 0) {
         HandleCommand(static_cast<WORD>(cmd));
@@ -419,6 +425,12 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         break;
 
     case WM_TIMER:
+        if (wParam == INDEX_HINT_TIMER_ID) {
+            KillTimer(hWnd, INDEX_HINT_TIMER_ID);
+            m_ctx.indexHintUntil = 0;
+            InvalidateRect(hWnd, nullptr, FALSE);
+            break;
+        }
         if (wParam == ANIMATION_TIMER_ID) {
             std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
             if (m_ctx.isAnimated && !m_ctx.animationFrameDelays.empty()) {
