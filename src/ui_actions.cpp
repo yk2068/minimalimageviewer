@@ -440,9 +440,3 @@ void ViewerApp::SetCurrentRating(int rating) {
     InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
 }
 
-void ViewerApp::FlashIndexHint() {
-    if (!m_ctx.showImageIndex) return;
-    m_ctx.indexHintUntil = GetTickCount64() + 1500;
-    SetTimer(m_ctx.hWnd, INDEX_HINT_TIMER_ID, 1500, nullptr);
-    InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
-}

@@ -1,7 +1,6 @@
 ﻿#include "viewer.h"
 #include <d2d1helper.h>
 #include <numbers>
-#include <format>
 
 
 
@@ -178,10 +177,6 @@ void ViewerApp::DrawOsdOverlay(ID2D1DeviceContext* renderTarget) {
         osdText += L"\n";
         osdText += L"F-stop: " + props.fStop + L"  Exposure: " + props.exposureTime + L"  ISO: " + props.iso + L"\n";
         osdText += L"Author: " + props.author + L"  Software: " + props.software + L"\n";
-        osdText += L"Rating: ";
-        const int rating = GetRating(m_ctx.loadingFilePath);
-        for (int i = 0; i < 5; ++i) osdText += (i < rating ? L"★" : L"☆");
-        osdText += L"\n";
 
         m_ctx.cachedOsdText = osdText;
         m_ctx.isOsdCacheValid = true;
@@ -223,54 +218,6 @@ void ViewerApp::DrawOsdOverlay(ID2D1DeviceContext* renderTarget) {
 
     m_ctx.textBrush->SetColor(D2D1::ColorF(D2D1::ColorF::White));
     renderTarget->DrawTextLayout(D2D1::Point2F(textRect.left, textRect.top), textLayout.Get(), m_ctx.textBrush.Get());
-}
-
-void ViewerApp::DrawIndexOverlay(ID2D1DeviceContext* renderTarget) {
-    if (!m_ctx.showImageIndex || m_ctx.currentImageIndex < 0 || m_ctx.imageFiles.empty() ||
-        !m_ctx.textFormat || !m_ctx.textBrush) {
-        return;
-    }
-    // Visible while the context menu is open, or briefly after switching images.
-    if (!m_ctx.isIndexPinned && GetTickCount64() >= m_ctx.indexHintUntil) {
-        return;
-    }
-
-    const float dpiScale = GetDpiForWindow(m_ctx.hWnd) / 96.0f;
-    const D2D1_SIZE_F rtSize = renderTarget->GetSize();
-
-    const std::wstring label = std::format(L"{} / {}", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size());
-
-    const float barWidth = 230.0f * dpiScale;
-    const float barHeight = 24.0f * dpiScale;
-    const float top = 8.0f * dpiScale;
-    const D2D1_RECT_F barRect = D2D1::RectF(
-        (rtSize.width - barWidth) * 0.5f,
-        top,
-        (rtSize.width + barWidth) * 0.5f,
-        top + barHeight
-    );
-
-    ComPtr<ID2D1SolidColorBrush> bgBrush;
-    if (FAILED(renderTarget->CreateSolidColorBrush(
-            D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.55f), &bgBrush))) {
-        return;
-    }
-
-    renderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
-    renderTarget->FillRectangle(barRect, bgBrush.Get());
-
-    m_ctx.textBrush->SetColor(D2D1::ColorF(D2D1::ColorF::White));
-    m_ctx.textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    m_ctx.textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    renderTarget->DrawTextW(
-        label.c_str(),
-        static_cast<UINT32>(label.length()),
-        m_ctx.textFormat.Get(),
-        barRect,
-        m_ctx.textBrush.Get()
-    );
-    m_ctx.textFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-    m_ctx.textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
 }
 
 void ViewerApp::Render() {
@@ -552,10 +499,6 @@ void ViewerApp::Render() {
 
         if (m_ctx.isOsdVisible && hasImage) {
             DrawOsdOverlay(m_ctx.renderTarget.Get());
-        }
-
-        if (!m_ctx.isCropPending) {
-            DrawIndexOverlay(m_ctx.renderTarget.Get());
         }
 
         if (m_ctx.isSelectingCropRect && m_ctx.cropRectBrush) {

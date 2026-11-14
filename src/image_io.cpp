@@ -927,7 +927,6 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
         }
 
         UpdateWindowTitle();
-        FlashIndexHint();
 
         WIN32_FILE_ATTRIBUTE_DATA fad = {};
         if (GetFileAttributesExW(m_ctx.loadingFilePath.c_str(), GetFileExInfoStandard, &fad)) {

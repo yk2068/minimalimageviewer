@@ -10,17 +10,12 @@ void ViewerApp::UpdateWindowTitle() {
         return;
     }
 
-    std::wstring prefix;
-    if (m_ctx.showImageIndex && m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty()) {
-        prefix = std::format(L"[{} / {}] ", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size());
-    }
-
     std::wstring title = m_ctx.loadingFilePath;
     if (m_ctx.animationFrameDelays.size() > 1) {
-        title = std::format(L"{}{} (Frame {}/{}) - {}", prefix, m_ctx.loadingFilePath, m_ctx.currentAnimationFrame + 1, m_ctx.animationFrameDelays.size(), appNameAndVersion);
+        title = std::format(L"{} (Frame {}/{}) - {}", m_ctx.loadingFilePath, m_ctx.currentAnimationFrame + 1, m_ctx.animationFrameDelays.size(), appNameAndVersion);
     }
     else {
-        title = std::format(L"{}{} - {}", prefix, m_ctx.loadingFilePath, appNameAndVersion);
+        title = std::format(L"{} - {}", m_ctx.loadingFilePath, appNameAndVersion);
     }
     SetWindowTextW(m_ctx.hWnd, title.c_str());
 }
