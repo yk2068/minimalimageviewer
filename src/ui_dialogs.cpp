@@ -414,3 +414,46 @@ INT_PTR CALLBACK ViewerApp::ZoomDialogProc(HWND hDlg, UINT message, WPARAM wPara
 void ViewerApp::OpenZoomDialog() {
     DialogBoxParam(m_ctx.hInst, MAKEINTRESOURCE(IDD_ZOOM_DIALOG), m_ctx.hWnd, ZoomDialogProc, (LPARAM)this);
 }
+
+INT_PTR CALLBACK ViewerApp::GotoDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
+    ViewerApp* pApp = GetAppFromDialog<ViewerApp>(hDlg, message, lParam);
+    if (!pApp) return (INT_PTR)FALSE;
+
+    auto& ctx = pApp->GetContext();
+    switch (message) {
+    case WM_INITDIALOG: {
+        const int total = static_cast<int>(ctx.imageFiles.size());
+        wchar_t hint[128] = {};
+        swprintf_s(hint, L"Go to image (1 - %d):", total);
+        SetDlgItemTextW(hDlg, IDC_STATIC_GOTO_HINT, hint);
+        SetDlgItemInt(hDlg, IDC_EDIT_GOTO, ctx.currentImageIndex + 1, FALSE);
+        return (INT_PTR)TRUE;
+    }
+    case WM_COMMAND:
+        switch (LOWORD(wParam)) {
+        case IDOK: {
+            BOOL valid = FALSE;
+            UINT value = GetDlgItemInt(hDlg, IDC_EDIT_GOTO, &valid, FALSE);
+            const int total = static_cast<int>(ctx.imageFiles.size());
+            if (!valid || value < 1 || value > static_cast<UINT>(total)) {
+                MessageBoxW(hDlg, L"Enter a valid image number.", L"Invalid input", MB_OK | MB_ICONERROR);
+                return (INT_PTR)TRUE;
+            }
+            ctx.currentImageIndex = static_cast<int>(value) - 1;
+            pApp->LoadImageFromFile(ctx.imageFiles[ctx.currentImageIndex]);
+            EndDialog(hDlg, IDOK);
+            return (INT_PTR)TRUE;
+        }
+        case IDCANCEL:
+            EndDialog(hDlg, IDCANCEL);
+            return (INT_PTR)TRUE;
+        }
+        break;
+    }
+    return (INT_PTR)FALSE;
+}
+
+void ViewerApp::OpenGotoDialog() {
+    if (m_ctx.imageFiles.empty() || m_ctx.currentImageIndex < 0) return;
+    DialogBoxParam(m_ctx.hInst, MAKEINTRESOURCE(IDD_GOTO_DIALOG), m_ctx.hWnd, GotoDialogProc, (LPARAM)this);
+}

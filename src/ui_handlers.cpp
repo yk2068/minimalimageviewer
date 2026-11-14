@@ -126,6 +126,7 @@ void ViewerApp::HandleCommand(WORD cmd) {
     case IDM_KEYBINDINGS:   OpenKeybindingsDialog(); break;
     case IDM_CUSTOM_ZOOM:   OpenZoomDialog(); break;
     case IDM_OPEN_EXTERNAL: OpenExternalAction(); break;
+    case IDM_GOTO_INDEX:    OpenGotoDialog(); break;
     case IDM_RATE_0:        SetCurrentRating(0); break;
     case IDM_RATE_1:        SetCurrentRating(1); break;
     case IDM_RATE_2:        SetCurrentRating(2); break;
@@ -288,9 +289,9 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     if (m_ctx.showImageIndex && m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty()) {
         const std::wstring indexText = std::format(
-            L"{} / {}", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size()
+            L"{} / {}   Go to...", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size()
         );
-        AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, indexText.c_str());
+        AppendMenuW(hMenu, MF_STRING, IDM_GOTO_INDEX, indexText.c_str());
     }
     addAction(hMenu, IDM_NEXT_IMG, Act_Next, Tr(StrId::NextImage));
     addAction(hMenu, IDM_PREV_IMG, Act_Prev, Tr(StrId::PrevImage));

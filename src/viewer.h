@@ -410,6 +410,7 @@ public:
     void OpenKeybindingsDialog();
     std::wstring GetHotkeyString(WORD hk);
     void OpenZoomDialog();
+    void OpenGotoDialog();
     void Render();
     void CreateDeviceResources();
     void DiscardDeviceResources();
@@ -430,6 +431,7 @@ public:
     static INT_PTR CALLBACK PreferencesDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK KeybindingsDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK ZoomDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
+    static INT_PTR CALLBACK GotoDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK PropsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     ComPtr<IWICBitmapSource> GetCompositedAnimationFrame(UINT targetIndex);
