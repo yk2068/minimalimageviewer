@@ -1,6 +1,7 @@
 ﻿#include "viewer.h"
 #include "exif_utils.h"
 #include <string>
+#include <memory>
 #include <stdio.h>
 #include <commctrl.h>
 #include <format>
@@ -411,6 +412,11 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
     case WM_APP_DIR_READY:
         OnDirReady((int)lParam);
         break;
+    case WM_APP_SAVE_DONE: {
+        std::unique_ptr<std::wstring> saved(reinterpret_cast<std::wstring*>(lParam));
+        if (saved) ReloadSavedImage(*saved);
+        break;
+    }
     case WM_APP_IMAGE_LOADED:
         FinalizeImageLoad(true, static_cast<int>(wParam));
         break;

@@ -981,9 +981,28 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
                     m_ctx.currentImageIndex = static_cast<int>(std::distance(m_ctx.imageFiles.begin(), it));
                 }
                 else {
-                    m_ctx.imageFiles.push_back(m_ctx.loadingFilePath);
-                    m_ctx.allImageFiles.push_back(m_ctx.loadingFilePath);
-                    m_ctx.currentImageIndex = static_cast<int>(m_ctx.imageFiles.size() - 1);
+                    // 另存 / 缩放 / 编辑输出的新文件：挂到原图后面，不要把浏览位置丢到列表末尾
+                    const int srcIdx = m_ctx.currentImageIndex;
+                    auto allIt = std::ranges::find_if(m_ctx.allImageFiles,
+                        [&](const std::wstring& s) { return _wcsicmp(s.c_str(), m_ctx.loadingFilePath.c_str()) == 0; }
+                    );
+                    if (allIt != m_ctx.allImageFiles.end()) {
+                        m_ctx.allImageFiles.insert(allIt + 1, m_ctx.loadingFilePath);
+                    }
+                    else {
+                        m_ctx.allImageFiles.push_back(m_ctx.loadingFilePath);
+                    }
+                    ApplyRatingFilter(m_ctx.loadingFilePath);
+                    const bool onTarget =
+                        m_ctx.currentImageIndex >= 0 &&
+                        m_ctx.currentImageIndex < static_cast<int>(m_ctx.imageFiles.size()) &&
+                        _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), m_ctx.loadingFilePath.c_str()) == 0;
+                    if (!onTarget) {
+                        // 新文件没通过评级筛选，也得能停在它上面
+                        const int insertAt = std::clamp(srcIdx + 1, 0, static_cast<int>(m_ctx.imageFiles.size()));
+                        m_ctx.imageFiles.insert(m_ctx.imageFiles.begin() + insertAt, m_ctx.loadingFilePath);
+                        m_ctx.currentImageIndex = insertAt;
+                    }
                 }
             }
             StartPreloading();
@@ -999,6 +1018,14 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
     }
 
     InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
+}
+
+void ViewerApp::ReloadSavedImage(const std::wstring& savedPath) {
+    if (savedPath.empty() || m_ctx.isLoading) return;
+    // 保存是在后台线程完成的，期间用户可能已经翻页；只刷新还在看的这张
+    if (_wcsicmp(m_ctx.loadingFilePath.c_str(), savedPath.c_str()) != 0) return;
+    m_ctx.preserveView = true;
+    LoadImageFromFile(savedPath);
 }
 
 void ViewerApp::OnDirReady(int seqId) {

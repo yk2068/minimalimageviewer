@@ -67,6 +67,7 @@ constexpr UINT WM_APP_IMAGE_LOAD_FAILED = (WM_APP + 2);
 constexpr UINT WM_APP_IMAGE_READY = (WM_APP + 7);
 constexpr UINT WM_APP_DIR_READY = (WM_APP + 8);
 constexpr UINT WM_APP_HIGH_RES_READY = (WM_APP + 9);
+constexpr UINT WM_APP_SAVE_DONE = (WM_APP + 10);
 
 constexpr UINT ANIMATION_TIMER_ID = 1;
 constexpr UINT AUTO_REFRESH_TIMER_ID = 3;
@@ -388,6 +389,7 @@ public:
     std::vector<std::wstring> ScanDirectory(const std::wstring& directoryPath, int seqId);
     void SaveImage();
     void SaveImageAs();
+    void ReloadSavedImage(const std::wstring& savedPath);
     void ResizeImageAction();
     void ApplyEffectsToView();
     void CommitCrop();

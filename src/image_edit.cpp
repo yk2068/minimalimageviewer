@@ -356,6 +356,9 @@ void ViewerApp::SaveImage() {
                 if (GetFileAttributesExW(originalPath.c_str(), GetFileExInfoStandard, &fad)) {
                     m_ctx.lastWriteTime = fad.ftLastWriteTime; // Prevents AutoRefresh from wiping screen
                 }
+                // 写盘完成后重新加载同一张，保持序号与缩放位置，视图与文件一致
+                PostMessageW(m_ctx.hWnd, WM_APP_SAVE_DONE, 0,
+                    reinterpret_cast<LPARAM>(new std::wstring(originalPath)));
             }
             else {
                 DeleteFileW(tempPath.c_str());
