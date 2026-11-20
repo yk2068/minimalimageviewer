@@ -1,6 +1,41 @@
 ﻿#include "viewer.h"
 #include <d2d1helper.h>
 #include <numbers>
+#include <format>
+
+
+// Small dark box with a single line of text, anchored at the bottom edge.
+// alignRight: bottom-right corner; otherwise bottom-center.
+static void DrawBottomHintBox(ID2D1DeviceContext* renderTarget, IDWriteFactory* writeFactory,
+    IDWriteTextFormat* textFormat, ID2D1SolidColorBrush* textBrush, HWND hWnd,
+    const std::wstring& text, bool alignRight)
+{
+    D2D1_SIZE_F rtSize = renderTarget->GetSize();
+    const float dpiScale = GetDpiForWindow(hWnd) / 96.0f;
+    const float padding = 10.0f * dpiScale;
+
+    ComPtr<IDWriteTextLayout> textLayout;
+    if (FAILED(writeFactory->CreateTextLayout(
+        text.c_str(), static_cast<UINT32>(text.length()), textFormat,
+        rtSize.width * 0.6f, rtSize.height, &textLayout))) {
+        return;
+    }
+
+    DWRITE_TEXT_METRICS metrics{};
+    textLayout->GetMetrics(&metrics);
+    const float bgWidth = metrics.widthIncludingTrailingWhitespace + padding * 2;
+    const float bgHeight = metrics.height + padding;
+    const float bgX = alignRight ? (rtSize.width - bgWidth - padding) : (rtSize.width - bgWidth) / 2.0f;
+    const float bgY = rtSize.height - bgHeight - padding;
+
+    renderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    ComPtr<ID2D1SolidColorBrush> bgBrush;
+    renderTarget->CreateSolidColorBrush(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.6f), &bgBrush);
+    renderTarget->FillRectangle(D2D1::RectF(bgX, bgY, bgX + bgWidth, bgY + bgHeight), bgBrush.Get());
+
+    textBrush->SetColor(D2D1::ColorF(D2D1::ColorF::White));
+    renderTarget->DrawTextLayout(D2D1::Point2F(bgX + padding, bgY + padding / 2.0f), textLayout.Get(), textBrush);
+}
 
 
 
@@ -499,6 +534,28 @@ void ViewerApp::Render() {
 
         if (m_ctx.isOsdVisible && hasImage) {
             DrawOsdOverlay(m_ctx.renderTarget.Get());
+        }
+
+        if (m_ctx.ratingHintValue >= 0 && m_ctx.textFormat && m_ctx.textBrush &&
+            GetTickCount64() - m_ctx.ratingHintTime < 1600) {
+            std::wstring hint = Tr(StrId::RatingLabel);
+            hint += L"  ";
+            for (int i = 0; i < 5; ++i) {
+                hint += (i < m_ctx.ratingHintValue) ? L'\x2605' : L'\x2606';
+            }
+            DrawBottomHintBox(m_ctx.renderTarget.Get(), m_ctx.writeFactory.Get(),
+                m_ctx.textFormat.Get(), m_ctx.textBrush.Get(), m_ctx.hWnd, hint, true);
+        }
+
+        if (m_ctx.isGotoInputActive && m_ctx.textFormat && m_ctx.textBrush) {
+            std::wstring input = Tr(StrId::GoToPrompt);
+            input += m_ctx.gotoInputText;
+            if ((GetTickCount64() / 530) % 2 == 0) {
+                input += L'_';
+            }
+            input += std::format(L" / {}", m_ctx.imageFiles.size());
+            DrawBottomHintBox(m_ctx.renderTarget.Get(), m_ctx.writeFactory.Get(),
+                m_ctx.textFormat.Get(), m_ctx.textBrush.Get(), m_ctx.hWnd, input, false);
         }
 
         if (m_ctx.isSelectingCropRect && m_ctx.cropRectBrush) {

@@ -75,6 +75,10 @@ constexpr UINT LOADING_TIMER_ID = 4;
 constexpr UINT NAV_DEBOUNCE_TIMER_ID = 6;
 constexpr UINT KEYBINDING_TIMER_ID = 7;
 constexpr UINT SLIDESHOW_TIMER_ID = 8;
+constexpr UINT RATING_HINT_TIMER_ID = 9;
+constexpr UINT GOTO_CURSOR_TIMER_ID = 10;
+constexpr UINT RATING_STRIP_TIMER_ID = 11;
+constexpr UINT ANIMATION_WATCHDOG_TIMER_ID = 12;
 
 enum class BackgroundColor {
     Grey = 0,
@@ -101,7 +105,7 @@ enum ActionID {
     Act_Open, Act_Refresh, Act_Copy, Act_Paste, Act_Save, Act_SaveAs, Act_Delete, Act_Undo,
     Act_CenterImage, Act_CommitCrop, Act_ToggleOSD, Act_PlayPause, Act_ResumeAnim,
     Act_AnimNext, Act_AnimPrev, Act_AnimFirst, Act_ContextMenu, Act_Slideshow,
-    Act_OpenExternal,
+    Act_OpenExternal, Act_GotoIndex, Act_RateUp, Act_RateDown,
     Act_Count
 };
 
@@ -287,6 +291,7 @@ struct AppContext {
     ComPtr<IWICBitmapSource> currentAnimatedConverter;
     std::vector<UINT> animationFrameDelays;
     UINT currentAnimationFrame = 0;
+    ULONGLONG lastAnimationTick = 0;
 
     std::atomic<bool> isInitialized{ false };
     bool isOsdVisible = false;
@@ -316,8 +321,20 @@ struct AppContext {
     std::wstring externalEditorPath = L"mspaint.exe";
     std::unordered_map<std::wstring, int> ratings;
     std::mutex ratingsMutex;
-    int ratingFilter = 0;
     std::vector<std::wstring> allImageFiles;
+
+    // In-place "go to page" input: digits typed straight into an overlay, no dialog
+    bool isGotoInputActive = false;
+    std::wstring gotoInputText;
+
+    // Owner-drawn rating strip inside the context menu: hover previews stars, click applies
+    HMENU ratingStripMenu = nullptr;
+    int ratingStripPos = -1;
+    int menuRatingHover = -1;
+
+    // Bottom-right hint shown after keyboard rating changes
+    int ratingHintValue = -1;
+    ULONGLONG ratingHintTime = 0;
     bool enableFadeAnimation = true;
     bool askToDelete = true;
     bool preserveZoomOnResize = false;
@@ -402,17 +419,20 @@ public:
     void SetWallpaper();
     void ShowImageProperties();
     void OpenExternalAction();
-    void SetCurrentRating(int rating);
+    void SetCurrentRating(int rating, bool showHint = false);
     int GetRating(const std::wstring& path);
     void LoadRatings(const std::wstring& iniPath);
     void SaveRating(const std::wstring& path, int rating);
-    void ApplyRatingFilter(const std::wstring& currentFile);
+    void RebuildImageList(const std::wstring& currentFile);
+    void UpdateRatingStripHover();
+    void DrawRatingStrip(HDC hdc, const RECT& rc, bool selected);
+    int MeasureRatingStripWidth();
     std::wstring CurrentImagePath() const;
+    std::wstring ResolveRememberPath();
     void OpenPreferencesDialog();
     void OpenKeybindingsDialog();
     std::wstring GetHotkeyString(WORD hk);
     void OpenZoomDialog();
-    void OpenGotoDialog();
     void Render();
     void CreateDeviceResources();
     void DiscardDeviceResources();
@@ -433,7 +453,6 @@ public:
     static INT_PTR CALLBACK PreferencesDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK KeybindingsDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK ZoomDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
-    static INT_PTR CALLBACK GotoDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK PropsWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     ComPtr<IWICBitmapSource> GetCompositedAnimationFrame(UINT targetIndex);

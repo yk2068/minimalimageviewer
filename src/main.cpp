@@ -198,7 +198,9 @@ int ViewerApp::Run(HINSTANCE hInstance, int nCmdShow, LPWSTR lpCmdLine) {
 
     MSG msg{};
     while (GetMessage(&msg, nullptr, 0, 0)) {
-        if (!m_ctx.hAccelTable || !TranslateAcceleratorW(m_ctx.hWnd, m_ctx.hAccelTable.get(), &msg)) {
+        // While the in-place goto input is active, keystrokes belong to the
+        // overlay (Enter/Esc are bound to actions in the accelerator table).
+        if (m_ctx.isGotoInputActive || !m_ctx.hAccelTable || !TranslateAcceleratorW(m_ctx.hWnd, m_ctx.hAccelTable.get(), &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }

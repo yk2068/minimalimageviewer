@@ -316,6 +316,25 @@ std::wstring ViewerApp::CurrentImagePath() const {
     return m_ctx.loadingFilePath;
 }
 
+std::wstring ViewerApp::ResolveRememberPath() {
+    // 记忆的图应该是「未修改」的：从当前图向前（索引递减）找第一张
+    // 既无未保存编辑、也无评级的干净图；找不到就退回当前图。
+    const bool currentDirty = (m_ctx.rotationAngle != 0 || m_ctx.isFlippedHorizontal || m_ctx.isCropActive);
+
+    const int idx = m_ctx.currentImageIndex;
+    if (idx >= 0 && idx < static_cast<int>(m_ctx.imageFiles.size())) {
+        if (GetRating(m_ctx.imageFiles[idx]) == 0 && !currentDirty) {
+            return m_ctx.imageFiles[idx];
+        }
+        for (int i = idx - 1; i >= 0; --i) {
+            if (GetRating(m_ctx.imageFiles[i]) == 0) {
+                return m_ctx.imageFiles[i];
+            }
+        }
+    }
+    return CurrentImagePath();
+}
+
 void ViewerApp::OpenExternalAction() {
     const std::wstring path = CurrentImagePath();
     if (path.empty()) return;
@@ -325,16 +344,35 @@ void ViewerApp::OpenExternalAction() {
         : m_ctx.externalEditorPath;
     const std::wstring params = L"\"" + path + L"\"";
 
-    HINSTANCE result = ShellExecuteW(
-        m_ctx.hWnd, L"open", editor.c_str(), params.c_str(), nullptr, SW_SHOWNORMAL
-    );
-    if (reinterpret_cast<INT_PTR>(result) <= 32) {
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+    sei.hwnd = m_ctx.hWnd;
+    sei.lpVerb = L"open";
+    sei.lpFile = editor.c_str();
+    sei.lpParameters = params.c_str();
+    sei.nShow = SW_SHOWNORMAL;
+
+    if (!ShellExecuteExW(&sei)) {
         MessageBoxW(
             m_ctx.hWnd,
-            L"Could not launch the external editor. Check its path in Preferences.",
-            L"External Editor",
+            Tr(StrId::ExternalEditorLaunchFailed),
+            Tr(StrId::ExternalEditor),
             MB_OK | MB_ICONWARNING
         );
+        return;
+    }
+
+    // 后台等待编辑器退出（不冻结 UI），退出后强制重新加载当前图，
+    // 让外部修改反映到视图并保持序号。
+    HANDLE hProcess = sei.hProcess;
+    if (hProcess) {
+        m_ctx.RunBackgroundTask([this, hProcess, path]() {
+            WaitForSingleObject(hProcess, INFINITE);
+            CloseHandle(hProcess);
+            if (m_ctx.isShuttingDown || !m_ctx.hWnd) return;
+            PostMessageW(m_ctx.hWnd, WM_APP_SAVE_DONE, 0,
+                reinterpret_cast<LPARAM>(new std::wstring(path)));
+        });
     }
 }
 
@@ -402,13 +440,8 @@ int ViewerApp::GetRating(const std::wstring& path) {
     return it != m_ctx.ratings.end() ? it->second : 0;
 }
 
-void ViewerApp::ApplyRatingFilter(const std::wstring& currentFile) {
-    m_ctx.imageFiles.clear();
-    for (const auto& file : m_ctx.allImageFiles) {
-        if (m_ctx.ratingFilter == 0 || GetRating(file) >= m_ctx.ratingFilter) {
-            m_ctx.imageFiles.push_back(file);
-        }
-    }
+void ViewerApp::RebuildImageList(const std::wstring& currentFile) {
+    m_ctx.imageFiles = m_ctx.allImageFiles;
 
     m_ctx.currentImageIndex = -1;
     if (!m_ctx.imageFiles.empty()) {
@@ -422,19 +455,17 @@ void ViewerApp::ApplyRatingFilter(const std::wstring& currentFile) {
     }
 }
 
-void ViewerApp::SetCurrentRating(int rating) {
+void ViewerApp::SetCurrentRating(int rating, bool showHint) {
     const std::wstring path = CurrentImagePath();
     if (path.empty()) return;
 
     SaveRating(path, rating);
     m_ctx.isOsdCacheValid = false;
 
-    if (m_ctx.ratingFilter > 0 && !m_ctx.allImageFiles.empty()) {
-        ApplyRatingFilter(path);
-        if (m_ctx.currentImageIndex >= 0 &&
-            _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), path.c_str()) != 0) {
-            LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
-        }
+    if (showHint) {
+        m_ctx.ratingHintValue = rating;
+        m_ctx.ratingHintTime = GetTickCount64();
+        SetTimer(m_ctx.hWnd, RATING_HINT_TIMER_ID, 1600, nullptr);
     }
 
     InvalidateRect(m_ctx.hWnd, nullptr, FALSE);

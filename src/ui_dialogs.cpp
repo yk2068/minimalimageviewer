@@ -306,13 +306,14 @@ std::wstring ViewerApp::GetHotkeyString(WORD hk) {
     return str;
 }
 
-static const wchar_t* ActionNames[] = {
-    L"Next Image", L"Previous Image", L"Zoom In", L"Zoom Out", L"Fit to Window", L"Actual Size",
-    L"Fullscreen", L"Rotate Clockwise", L"Rotate Counter-Clockwise", L"Flip", L"Crop", L"Custom Zoom", L"Exit",
-    L"Open File", L"Refresh", L"Copy", L"Paste", L"Save", L"Save As", L"Delete Image", L"Undo",
-    L"Center Image", L"Commit Crop", L"Toggle OSD", L"Play/Pause Animation", L"Resume Animation",
-    L"Next Frame", L"Previous Frame", L"First Frame", L"Open Context Menu", L"Toggle Slideshow",
-    L"Open External Editor"
+// Localized names for every configurable action, indexed by ActionID.
+static const StrId ActionNameIds[Act_Count] = {
+    StrId::NextImage, StrId::PrevImage, StrId::ZoomIn, StrId::ZoomOut, StrId::FitToWindow, StrId::ActualSize,
+    StrId::FullScreen, StrId::RotateCW, StrId::RotateCCW, StrId::Flip, StrId::Crop, StrId::CustomZoomLabel, StrId::Exit,
+    StrId::OpenImage, StrId::Refresh, StrId::Copy, StrId::Paste, StrId::Save, StrId::SaveAs, StrId::DeleteImage, StrId::UndoLabel,
+    StrId::CenterImageLabel, StrId::CommitCropLabel, StrId::ToggleOsdLabel, StrId::PlayPauseLabel, StrId::ResumeAnimLabel,
+    StrId::NextFrameLabel, StrId::PrevFrameLabel, StrId::FirstFrameLabel, StrId::OpenContextMenuLabel, StrId::ToggleSlideshow,
+    StrId::OpenExternalEditor, StrId::GoToPage, StrId::RateUpLabel, StrId::RateDownLabel
 };
 
 INT_PTR CALLBACK ViewerApp::KeybindingsDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -323,9 +324,14 @@ INT_PTR CALLBACK ViewerApp::KeybindingsDialogProc(HWND hDlg, UINT message, WPARA
 
     switch (message) {
     case WM_INITDIALOG: {
+        SetWindowTextW(hDlg, Tr(StrId::Keybindings));
+        SetDlgItemTextW(hDlg, IDC_STATIC_KB_ACTION, Tr(StrId::ActionLabel));
+        SetDlgItemTextW(hDlg, IDC_STATIC_KB_SHORTCUT, Tr(StrId::ShortcutLabel));
+        SetDlgItemTextW(hDlg, IDOK, Tr(StrId::ApplyLabel));
+        SetDlgItemTextW(hDlg, IDCANCEL, Tr(StrId::CloseLabel));
         HWND hCombo = GetDlgItem(hDlg, IDC_COMBO_ACTION);
         for (int i = 0; i < Act_Count; ++i) {
-            SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)ActionNames[i]);
+            SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)Tr(ActionNameIds[i]));
         }
         SendMessageW(hCombo, CB_SETCURSEL, 0, 0);
         SendMessageW(GetDlgItem(hDlg, IDC_HOTKEY_CTRL), HKM_SETHOTKEY, ctx.hotkeys[0], 0);
@@ -353,7 +359,7 @@ INT_PTR CALLBACK ViewerApp::KeybindingsDialogProc(HWND hDlg, UINT message, WPARA
                 }
                 pApp->WriteSettings(ctx.settingsPath, ctx.windowPlacement, ctx.startFullScreen, ctx.enforceSingleInstance, ctx.alwaysOnTop);
 
-                SetDlgItemTextW(hDlg, IDOK, L"Applied!");
+                SetDlgItemTextW(hDlg, IDOK, Tr(StrId::AppliedNotice));
                 SetTimer(hDlg, KEYBINDING_TIMER_ID, 1500, nullptr);
             }
             return (INT_PTR)TRUE;
@@ -366,7 +372,7 @@ INT_PTR CALLBACK ViewerApp::KeybindingsDialogProc(HWND hDlg, UINT message, WPARA
     case WM_TIMER:
         if (wParam == KEYBINDING_TIMER_ID) {
             KillTimer(hDlg, KEYBINDING_TIMER_ID);
-            SetDlgItemTextW(hDlg, IDOK, L"Apply");
+            SetDlgItemTextW(hDlg, IDOK, Tr(StrId::ApplyLabel));
         }
         return (INT_PTR)TRUE;
     }
@@ -413,47 +419,4 @@ INT_PTR CALLBACK ViewerApp::ZoomDialogProc(HWND hDlg, UINT message, WPARAM wPara
 
 void ViewerApp::OpenZoomDialog() {
     DialogBoxParam(m_ctx.hInst, MAKEINTRESOURCE(IDD_ZOOM_DIALOG), m_ctx.hWnd, ZoomDialogProc, (LPARAM)this);
-}
-
-INT_PTR CALLBACK ViewerApp::GotoDialogProc(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam) {
-    ViewerApp* pApp = GetAppFromDialog<ViewerApp>(hDlg, message, lParam);
-    if (!pApp) return (INT_PTR)FALSE;
-
-    auto& ctx = pApp->GetContext();
-    switch (message) {
-    case WM_INITDIALOG: {
-        const int total = static_cast<int>(ctx.imageFiles.size());
-        wchar_t hint[128] = {};
-        swprintf_s(hint, L"Go to image (1 - %d):", total);
-        SetDlgItemTextW(hDlg, IDC_STATIC_GOTO_HINT, hint);
-        SetDlgItemInt(hDlg, IDC_EDIT_GOTO, ctx.currentImageIndex + 1, FALSE);
-        return (INT_PTR)TRUE;
-    }
-    case WM_COMMAND:
-        switch (LOWORD(wParam)) {
-        case IDOK: {
-            BOOL valid = FALSE;
-            UINT value = GetDlgItemInt(hDlg, IDC_EDIT_GOTO, &valid, FALSE);
-            const int total = static_cast<int>(ctx.imageFiles.size());
-            if (!valid || value < 1 || value > static_cast<UINT>(total)) {
-                MessageBoxW(hDlg, L"Enter a valid image number.", L"Invalid input", MB_OK | MB_ICONERROR);
-                return (INT_PTR)TRUE;
-            }
-            ctx.currentImageIndex = static_cast<int>(value) - 1;
-            pApp->LoadImageFromFile(ctx.imageFiles[ctx.currentImageIndex]);
-            EndDialog(hDlg, IDOK);
-            return (INT_PTR)TRUE;
-        }
-        case IDCANCEL:
-            EndDialog(hDlg, IDCANCEL);
-            return (INT_PTR)TRUE;
-        }
-        break;
-    }
-    return (INT_PTR)FALSE;
-}
-
-void ViewerApp::OpenGotoDialog() {
-    if (m_ctx.imageFiles.empty() || m_ctx.currentImageIndex < 0) return;
-    DialogBoxParam(m_ctx.hInst, MAKEINTRESOURCE(IDD_GOTO_DIALOG), m_ctx.hWnd, GotoDialogProc, (LPARAM)this);
 }

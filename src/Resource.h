@@ -83,10 +83,8 @@
 #define IDC_CHECK_WRAP_AROUND       2036
 #define IDC_EDIT_EXTERNAL_PATH      2037
 #define IDC_CHECK_SHOW_IMAGE_INDEX  2038
-#define IDC_EDIT_GOTO               2039
-#define IDC_STATIC_GOTO_HINT        2040
-
-#define IDD_GOTO_DIALOG             206
+#define IDC_STATIC_KB_ACTION        2039
+#define IDC_STATIC_KB_SHORTCUT      2040
 
 #define IDM_OPEN_EXTERNAL           1078
 #define IDM_RATE_0                  1079
@@ -97,12 +95,9 @@
 #define IDM_RATE_5                  1084
 #define IDM_SORT_BY_RATING_ASC      1085
 #define IDM_SORT_BY_RATING_DESC     1086
-#define IDM_FILTER_RATING_ALL       1087
-#define IDM_FILTER_RATING_1         1088
-#define IDM_FILTER_RATING_2         1089
-#define IDM_FILTER_RATING_3         1090
-#define IDM_FILTER_RATING_4         1091
-#define IDM_FILTER_RATING_5         1092
 #define IDM_GOTO_INDEX              1093
+#define IDM_RATE_STRIP              1094
+#define IDM_RATE_UP                 1095
+#define IDM_RATE_DOWN               1096
 
 #define IDC_STATIC                  -1

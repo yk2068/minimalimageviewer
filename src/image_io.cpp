@@ -750,15 +750,19 @@ std::vector<std::wstring> ViewerApp::ScanDirectory(const std::wstring& directory
             return {};
         }
 
-        // Skip directories/special files
-        if (entry.is_regular_file(ec)) {
+        // 每个属性独立取错误码：复用一个 ec 时，一旦某次失败会污染后续所有读取，
+        // 导致 writeTime 全部退化为 epoch，按修改时间排序就变成乱序。
+        std::error_code ecType, ecTime, ecSize;
+        if (entry.is_regular_file(ecType)) {
             std::wstring fullPath = entry.path().wstring();
 
             if (IsImageFile(fullPath.c_str())) {
                 FileInfo info;
                 info.path = std::move(fullPath);
-                info.writeTime = entry.last_write_time(ec);
-                info.fileSize = entry.file_size(ec);
+                auto wt = entry.last_write_time(ecTime);
+                info.writeTime = ecTime ? fs::file_time_type{} : wt;
+                auto sz = entry.file_size(ecSize);
+                info.fileSize = ecSize ? 0 : sz;
                 info.rating = GetRating(info.path);
                 foundFiles.push_back(info);
             }
@@ -779,15 +783,18 @@ std::vector<std::wstring> ViewerApp::ScanDirectory(const std::wstring& directory
             break;
         case SortCriteria::ByRating:
             cmp = a.rating <=> b.rating;
-            if (cmp == std::strong_ordering::equal) {
-                cmp = StrCmpLogicalW(a.path.c_str(), b.path.c_str()) <=> 0;
-            }
             break;
         case SortCriteria::ByName:
         default:
             // StrCmpLogicalW returns an int
             cmp = StrCmpLogicalW(a.path.c_str(), b.path.c_str()) <=> 0;
             break;
+        }
+
+        // 次级排序键固定回退到文件名自然序，保证相同主键（时间/大小/评分）时
+        // 顺序确定，避免目录遍历顺序不稳定导致"每次打开顺序不同"。
+        if (cmp == std::strong_ordering::equal) {
+            cmp = StrCmpLogicalW(a.path.c_str(), b.path.c_str()) <=> 0;
         }
 
         return m_ctx.isSortAscending ? (cmp < 0) : (cmp > 0);
@@ -812,6 +819,7 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
 
         // Clear the old image state before displaying new
         KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
+        KillTimer(m_ctx.hWnd, ANIMATION_WATCHDOG_TIMER_ID);
         m_ctx.d2dBitmap = nullptr;
         m_ctx.highResImageSource = nullptr;
         m_ctx.animationD2DBitmaps.clear();
@@ -885,7 +893,9 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
             }
 
             if (animated && !m_ctx.animationFrameDelays.empty()) {
+                m_ctx.lastAnimationTick = GetTickCount64();
                 SetTimer(m_ctx.hWnd, ANIMATION_TIMER_ID, m_ctx.animationFrameDelays[m_ctx.currentAnimationFrame], nullptr);
+                SetTimer(m_ctx.hWnd, ANIMATION_WATCHDOG_TIMER_ID, 1000, nullptr);
             }
         }
         m_ctx.startAtEnd = false;
@@ -992,13 +1002,13 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
                     else {
                         m_ctx.allImageFiles.push_back(m_ctx.loadingFilePath);
                     }
-                    ApplyRatingFilter(m_ctx.loadingFilePath);
+                    RebuildImageList(m_ctx.loadingFilePath);
                     const bool onTarget =
                         m_ctx.currentImageIndex >= 0 &&
                         m_ctx.currentImageIndex < static_cast<int>(m_ctx.imageFiles.size()) &&
                         _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), m_ctx.loadingFilePath.c_str()) == 0;
                     if (!onTarget) {
-                        // 新文件没通过评级筛选，也得能停在它上面
+                        // 兜底：新文件也要能停在它上面
                         const int insertAt = std::clamp(srcIdx + 1, 0, static_cast<int>(m_ctx.imageFiles.size()));
                         m_ctx.imageFiles.insert(m_ctx.imageFiles.begin() + insertAt, m_ctx.loadingFilePath);
                         m_ctx.currentImageIndex = insertAt;
@@ -1022,7 +1032,7 @@ void ViewerApp::OnImageReady(bool success, int seqId) {
 
 void ViewerApp::ReloadSavedImage(const std::wstring& savedPath) {
     if (savedPath.empty() || m_ctx.isLoading) return;
-    // 保存是在后台线程完成的，期间用户可能已经翻页；只刷新还在看的这张
+    // 保存/外部编辑是在后台线程完成的，期间用户可能已经翻页；只刷新还在看的这张
     if (_wcsicmp(m_ctx.loadingFilePath.c_str(), savedPath.c_str()) != 0) return;
     m_ctx.preserveView = true;
     LoadImageFromFile(savedPath);
@@ -1034,7 +1044,7 @@ void ViewerApp::OnDirReady(int seqId) {
        std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
         m_ctx.allImageFiles = std::move(m_ctx.stagedImageFiles);
     }
-    ApplyRatingFilter(m_ctx.loadingFilePath);
+    RebuildImageList(m_ctx.loadingFilePath);
     if (m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty() &&
         _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), m_ctx.loadingFilePath.c_str()) != 0) {
         LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
@@ -1062,6 +1072,13 @@ void ViewerApp::FinalizeImageLoad(bool success, int foundIndex) {
     }
     else {
         m_ctx.currentImageIndex = -1;
+        {
+            std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
+            m_ctx.isAnimated = false;
+            m_ctx.isAnimationPaused = false;
+            m_ctx.animationFrameDelays.clear();
+        }
+        KillTimer(m_ctx.hWnd, ANIMATION_WATCHDOG_TIMER_ID);
         SetWindowTextW(m_ctx.hWnd, L"Minimal Image Viewer v2.0.6");
         CenterImage(true);
     }

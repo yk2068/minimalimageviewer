@@ -15,8 +15,6 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     wchar_t editorBuf[MAX_PATH] = {};
     GetPrivateProfileStringW(L"Settings", L"ExternalEditorPath", L"mspaint.exe", editorBuf, MAX_PATH, path.c_str());
     m_ctx.externalEditorPath = editorBuf;
-    int ratingFilter = getInt(L"Settings", L"RatingFilter", 0);
-    m_ctx.ratingFilter = (ratingFilter < 0 || ratingFilter > 5) ? 0 : ratingFilter;
     std::vector<wchar_t> lastImageBuf(32768);
     GetPrivateProfileStringW(L"Settings", L"LastImagePath", L"", lastImageBuf.data(),
         static_cast<DWORD>(lastImageBuf.size()), path.c_str());
@@ -52,12 +50,14 @@ void ViewerApp::ReadSettings(const std::wstring& path, WINDOWPLACEMENT& wp, bool
     const wchar_t* keyNames[Act_Count] = {
         L"Next", L"Prev", L"ZoomIn", L"ZoomOut", L"Fit", L"Actual", L"Fullscreen", L"RotateCW", L"RotateCCW", L"Flip", L"Crop", L"CustomZoom", L"Exit",
         L"Open", L"Refresh", L"Copy", L"Paste", L"Save", L"SaveAs", L"Delete", L"Undo", L"CenterImage", L"CommitCrop", L"ToggleOSD", L"PlayPause", L"ResumeAnim",
-        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow", L"OpenExternal"
+        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow", L"OpenExternal", L"GotoIndex",
+        L"RateUp", L"RateDown"
     };
     const WORD defaultKeys[Act_Count] = {
         MAKEWORD(VK_RIGHT, HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_EXT), MAKEWORD(VK_ADD, HOTKEYF_CONTROL), MAKEWORD(VK_SUBTRACT, HOTKEYF_CONTROL), MAKEWORD('0', HOTKEYF_CONTROL | HOTKEYF_SHIFT), MAKEWORD(VK_MULTIPLY, HOTKEYF_CONTROL), VK_F11, MAKEWORD(VK_UP, HOTKEYF_EXT), MAKEWORD(VK_DOWN, HOTKEYF_EXT), 'F', 'C', MAKEWORD('Z', HOTKEYF_CONTROL | HOTKEYF_SHIFT), VK_ESCAPE,
         MAKEWORD('O', HOTKEYF_CONTROL), VK_F5, MAKEWORD('C', HOTKEYF_CONTROL), MAKEWORD('V', HOTKEYF_CONTROL), MAKEWORD('S', HOTKEYF_CONTROL), MAKEWORD('S', HOTKEYF_CONTROL | HOTKEYF_SHIFT), MAKEWORD(VK_DELETE, HOTKEYF_EXT), MAKEWORD('Z', HOTKEYF_CONTROL), 0, VK_RETURN, 'I', VK_SPACE, MAKEWORD(VK_SPACE, HOTKEYF_SHIFT),
-        MAKEWORD(VK_RIGHT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_UP, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_F10, HOTKEYF_SHIFT), 'P', 'E'
+        MAKEWORD(VK_RIGHT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_LEFT, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_UP, HOTKEYF_SHIFT | HOTKEYF_EXT), MAKEWORD(VK_F10, HOTKEYF_SHIFT), 'P', 'E', 'G',
+        VK_OEM_PLUS, VK_OEM_MINUS
     };
     for (int i = 0; i < Act_Count; ++i) {
         m_ctx.hotkeys[i] = (WORD)getInt(L"Keys", keyNames[i], defaultKeys[i]);
@@ -84,8 +84,8 @@ void ViewerApp::WriteSettings(const std::wstring& path, const WINDOWPLACEMENT& w
     writeInt(L"Settings", L"SmoothScaling", m_ctx.smoothScaling ? 1 : 0);
     writeInt(L"Settings", L"ShowImageIndex", m_ctx.showImageIndex ? 1 : 0);
     WritePrivateProfileStringW(L"Settings", L"ExternalEditorPath", m_ctx.externalEditorPath.c_str(), path.c_str());
-    writeInt(L"Settings", L"RatingFilter", m_ctx.ratingFilter);
-    WritePrivateProfileStringW(L"Settings", L"LastImagePath", m_ctx.lastImagePath.c_str(), path.c_str());
+    // 记忆的图：向前找第一张「未修改」的干净图
+    WritePrivateProfileStringW(L"Settings", L"LastImagePath", ResolveRememberPath().c_str(), path.c_str());
     writeInt(L"Settings", L"EnableFadeAnimation", m_ctx.enableFadeAnimation ? 1 : 0);
     writeInt(L"Settings", L"ShowOSD", m_ctx.isOsdVisible ? 1 : 0);
     writeInt(L"Settings", L"AskToDelete", m_ctx.askToDelete ? 1 : 0);
@@ -104,7 +104,8 @@ void ViewerApp::WriteSettings(const std::wstring& path, const WINDOWPLACEMENT& w
     const wchar_t* keyNames[Act_Count] = {
         L"Next", L"Prev", L"ZoomIn", L"ZoomOut", L"Fit", L"Actual", L"Fullscreen", L"RotateCW", L"RotateCCW", L"Flip", L"Crop", L"CustomZoom", L"Exit",
         L"Open", L"Refresh", L"Copy", L"Paste", L"Save", L"SaveAs", L"Delete", L"Undo", L"CenterImage", L"CommitCrop", L"ToggleOSD", L"PlayPause", L"ResumeAnim",
-        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow", L"OpenExternal"
+        L"AnimNext", L"AnimPrev", L"AnimFirst", L"ContextMenu", L"Slideshow", L"OpenExternal", L"GotoIndex",
+        L"RateUp", L"RateDown"
     };
     for (int i = 0; i < Act_Count; ++i) {
         writeInt(L"Keys", keyNames[i], m_ctx.hotkeys[i]);
@@ -149,7 +150,8 @@ void ViewerApp::UpdateAcceleratorTable() {
         IDM_CROP, IDM_CUSTOM_ZOOM, IDM_EXIT,
         IDM_OPEN, IDM_REFRESH, IDM_COPY, IDM_PASTE, IDM_SAVE, IDM_SAVE_AS, IDM_DELETE_IMG, IDM_UNDO,
         IDM_CENTER_IMAGE, IDM_COMMIT_CROP, IDM_TOGGLE_OSD, IDM_PLAY_PAUSE, IDM_RESUME_ANIM,
-        IDM_ANIM_NEXT_FRAME, IDM_ANIM_PREV_FRAME, IDM_ANIM_FIRST_FRAME, IDM_CONTEXT_MENU, IDM_SLIDESHOW, IDM_OPEN_EXTERNAL
+        IDM_ANIM_NEXT_FRAME, IDM_ANIM_PREV_FRAME, IDM_ANIM_FIRST_FRAME, IDM_CONTEXT_MENU, IDM_SLIDESHOW, IDM_OPEN_EXTERNAL, IDM_GOTO_INDEX,
+        IDM_RATE_UP, IDM_RATE_DOWN
     };
 
     for (int i = 0; i < Act_Count; ++i) {

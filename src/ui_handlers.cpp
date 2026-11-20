@@ -9,6 +9,148 @@
 #pragma comment(lib, "comctl32.lib")
 
 
+// Shared geometry of the compact 5-star group inside a menu row.
+// The group starts where regular menu item text starts (after the check gutter).
+static RECT RatingGroupRect(const RECT& rc, float dpiScale) {
+    const int cell = std::max(7L, lround(18.0 * dpiScale));
+    const int groupW = cell * 5;
+    const int x = rc.left + GetSystemMetrics(SM_CXMENUCHECK) - 2;
+    return { x, rc.top, x + groupW, rc.bottom };
+}
+
+// Estimate the pixel width of the widest text item in the menu, so the
+// owner-drawn rating strip measures the same width as its neighbours.
+static int EstimateWidestMenuItemWidth(HMENU hMenu, float dpiScale) {
+    NONCLIENTMETRICSW ncm{ sizeof(ncm) };
+    if (!SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0)) {
+        return static_cast<int>(150 * dpiScale);
+    }
+    HDC hdc = GetDC(nullptr);
+    HFONT hf = CreateFontIndirectW(&ncm.lfMenuFont);
+    HGDIOBJ hOld = SelectObject(hdc, hf);
+    int maxW = 0;
+    const int count = GetMenuItemCount(hMenu);
+    for (int i = 0; i < count; ++i) {
+        MENUITEMINFOW mii{ sizeof(mii) };
+        mii.fMask = MIIM_STRING;
+        wchar_t buf[256] = {};
+        mii.dwTypeData = buf;
+        mii.cch = 256;
+        if (!GetMenuItemInfoW(hMenu, i, TRUE, &mii) || mii.cch == 0) continue;
+        wchar_t* tab = wcschr(buf, L'\t');
+        if (tab) *tab = L'\0';
+        SIZE sz{};
+        if (!GetTextExtentPoint32W(hdc, buf, lstrlenW(buf), &sz)) continue;
+        int w = sz.cx;
+        if (tab && GetTextExtentPoint32W(hdc, tab + 1, lstrlenW(tab + 1), &sz)) {
+            w += sz.cx + static_cast<int>(16 * dpiScale); // shortcut column gap
+        }
+        maxW = std::max(maxW, w);
+    }
+    SelectObject(hdc, hOld);
+    DeleteObject(hf);
+    ReleaseDC(nullptr, hdc);
+    return maxW + static_cast<int>(40 * dpiScale); // check gutter + margins
+}
+
+int ViewerApp::MeasureRatingStripWidth() {
+    const float dpiScale = GetDpiForWindow(m_ctx.hWnd) / 96.0f;
+    const int compact = static_cast<int>(5 * 18 * dpiScale) + static_cast<int>(8 * dpiScale);
+    if (!m_ctx.ratingStripMenu) return compact;
+    return std::max(EstimateWidestMenuItemWidth(m_ctx.ratingStripMenu, dpiScale), compact);
+}
+
+void ViewerApp::UpdateRatingStripHover() {
+    if (!m_ctx.ratingStripMenu || m_ctx.ratingStripPos < 0) return;
+
+    // Locate the popup menu window ("#32768") that actually hosts the strip
+    HWND hMenuWnd = nullptr;
+    struct EnumCtx { HMENU menu; int pos; HWND found; } ctx{ m_ctx.ratingStripMenu, m_ctx.ratingStripPos, nullptr };
+    EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM lp) -> BOOL {
+        auto* c = reinterpret_cast<EnumCtx*>(lp);
+        wchar_t cls[8] = {};
+        if (GetClassNameW(hwnd, cls, 8) && wcscmp(cls, L"#32768") == 0) {
+            RECT rc{};
+            if (GetMenuItemRect(hwnd, c->menu, c->pos, &rc)) {
+                c->found = hwnd;
+                return FALSE;
+            }
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&ctx));
+    hMenuWnd = ctx.found;
+    if (!hMenuWnd) return;
+
+    RECT rc{};
+    if (!GetMenuItemRect(hMenuWnd, m_ctx.ratingStripMenu, m_ctx.ratingStripPos, &rc)) return;
+
+    POINT pt{};
+    GetCursorPos(&pt);
+
+    int newHover = -1;
+    if (pt.y >= rc.top && pt.y < rc.bottom) {
+        // The whole row width maps onto 0-5 stars; the star group itself is
+        // compact and centered, positions outside it clamp to the nearest end.
+        const float dpiScale = GetDpiForWindow(m_ctx.hWnd) / 96.0f;
+        const RECT group = RatingGroupRect(rc, dpiScale);
+        const int cell = (group.right - group.left) / 5;
+        if (pt.x <= group.left) {
+            newHover = 0;
+        }
+        else if (pt.x >= group.right) {
+            newHover = 5;
+        }
+        else if (cell > 0) {
+            newHover = static_cast<int>(std::min(5L, (pt.x - group.left) / cell + 1));
+        }
+    }
+
+    if (newHover != m_ctx.menuRatingHover) {
+        m_ctx.menuRatingHover = newHover;
+        // The strip is owner-drawn; repaint it directly on the popup menu window
+        POINT tl{ rc.left, rc.top }, br{ rc.right, rc.bottom };
+        ScreenToClient(hMenuWnd, &tl);
+        ScreenToClient(hMenuWnd, &br);
+        RECT rcClient{ tl.x, tl.y, br.x, br.y };
+        HDC hdc = GetDC(hMenuWnd);
+        if (hdc) {
+            DrawRatingStrip(hdc, rcClient, true);
+            ReleaseDC(hMenuWnd, hdc);
+        }
+    }
+}
+
+void ViewerApp::DrawRatingStrip(HDC hdc, const RECT& rc, bool selected) {
+    const int filled = (selected && m_ctx.menuRatingHover >= 0)
+        ? m_ctx.menuRatingHover
+        : GetRating(CurrentImagePath());
+
+    FillRect(hdc, &rc, GetSysColorBrush(selected ? COLOR_MENUHILIGHT : COLOR_MENU));
+
+    const float dpiScale = GetDpiForWindow(m_ctx.hWnd) / 96.0f;
+    const RECT group = RatingGroupRect(rc, dpiScale);
+    const int cell = (group.right - group.left) / 5;
+    const int fontH = static_cast<int>(13 * dpiScale);
+    if (cell <= 0 || fontH <= 0) return;
+
+    HFONT hFont = CreateFontW(-fontH, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI Symbol");
+    HGDIOBJ hOld = SelectObject(hdc, hFont);
+    SetBkMode(hdc, TRANSPARENT);
+
+    const wchar_t star = L'\x2605';
+    for (int i = 0; i < 5; ++i) {
+        RECT cellRc{ group.left + i * cell, rc.top, group.left + (i + 1) * cell, rc.bottom };
+        SetTextColor(hdc, i < filled
+            ? RGB(255, 176, 32)
+            : (selected ? RGB(210, 210, 210) : RGB(128, 128, 128)));
+        DrawTextW(hdc, &star, 1, &cellRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+    }
+
+    SelectObject(hdc, hOld);
+    DeleteObject(hFont);
+}
 
 
 
@@ -39,7 +181,7 @@ void ViewerApp::NavigateImage(int direction, bool allowWrap) {
 
     m_ctx.currentImageIndex = targetIndex;
     std::wstring title = PathFindFileNameW(m_ctx.imageFiles[targetIndex].c_str());
-    title += L"  [Loading...] - Minimal Image Viewer v2.0.6";
+    title += std::wstring(L"  [") + Tr(StrId::Loading) + L"] - Minimal Image Viewer v2.0.6";
     SetWindowTextW(m_ctx.hWnd, title.c_str());
     LoadImageFromFile(m_ctx.imageFiles[targetIndex], direction < 0);
 }
@@ -127,13 +269,22 @@ void ViewerApp::HandleCommand(WORD cmd) {
     case IDM_KEYBINDINGS:   OpenKeybindingsDialog(); break;
     case IDM_CUSTOM_ZOOM:   OpenZoomDialog(); break;
     case IDM_OPEN_EXTERNAL: OpenExternalAction(); break;
-    case IDM_GOTO_INDEX:    OpenGotoDialog(); break;
-    case IDM_RATE_0:        SetCurrentRating(0); break;
-    case IDM_RATE_1:        SetCurrentRating(1); break;
-    case IDM_RATE_2:        SetCurrentRating(2); break;
-    case IDM_RATE_3:        SetCurrentRating(3); break;
-    case IDM_RATE_4:        SetCurrentRating(4); break;
-    case IDM_RATE_5:        SetCurrentRating(5); break;
+    case IDM_GOTO_INDEX:
+        if (!m_ctx.imageFiles.empty() && m_ctx.currentImageIndex >= 0) {
+            m_ctx.isGotoInputActive = true;
+            m_ctx.gotoInputText.clear();
+            SetTimer(m_ctx.hWnd, GOTO_CURSOR_TIMER_ID, 530, nullptr);
+            InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
+        }
+        break;
+    case IDM_RATE_0:        SetCurrentRating(0, true); break;
+    case IDM_RATE_1:        SetCurrentRating(1, true); break;
+    case IDM_RATE_2:        SetCurrentRating(2, true); break;
+    case IDM_RATE_3:        SetCurrentRating(3, true); break;
+    case IDM_RATE_4:        SetCurrentRating(4, true); break;
+    case IDM_RATE_5:        SetCurrentRating(5, true); break;
+    case IDM_RATE_UP:       SetCurrentRating(std::min(5, GetRating(CurrentImagePath()) + 1), true); break;
+    case IDM_RATE_DOWN:     SetCurrentRating(std::max(0, GetRating(CurrentImagePath()) - 1), true); break;
     case IDM_CONTEXT_MENU: {
         RECT rc;
         GetClientRect(m_ctx.hWnd, &rc);
@@ -180,8 +331,11 @@ void ViewerApp::HandleCommand(WORD cmd) {
     case IDM_RESUME_ANIM:
         if (m_ctx.animationFrameDelays.size() > 1 && m_ctx.isAnimationPaused) {
             m_ctx.isAnimationPaused = false;
-            UINT delay = m_ctx.animationFrameDelays[m_ctx.currentAnimationFrame];
+            const size_t frame = std::min<size_t>(m_ctx.currentAnimationFrame, m_ctx.animationFrameDelays.size() - 1);
+            UINT delay = m_ctx.animationFrameDelays[frame];
+            m_ctx.lastAnimationTick = GetTickCount64();
             SetTimer(m_ctx.hWnd, ANIMATION_TIMER_ID, delay > 0 ? delay : 100, nullptr);
+            SetTimer(m_ctx.hWnd, ANIMATION_WATCHDOG_TIMER_ID, 1000, nullptr);
         }
         break;
     case IDM_ANIM_NEXT_FRAME:
@@ -240,27 +394,6 @@ void ViewerApp::HandleCommand(WORD cmd) {
         }
         break;
     }
-    case IDM_FILTER_RATING_ALL:
-    case IDM_FILTER_RATING_1:
-    case IDM_FILTER_RATING_2:
-    case IDM_FILTER_RATING_3:
-    case IDM_FILTER_RATING_4:
-    case IDM_FILTER_RATING_5:
-    {
-        m_ctx.ratingFilter = (cmd == IDM_FILTER_RATING_ALL)
-            ? 0
-            : (cmd - IDM_FILTER_RATING_1 + 1);
-        const std::wstring currentFile = CurrentImagePath();
-        if (!m_ctx.allImageFiles.empty()) {
-            ApplyRatingFilter(currentFile);
-            if (m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty() &&
-                _wcsicmp(m_ctx.imageFiles[m_ctx.currentImageIndex].c_str(), currentFile.c_str()) != 0) {
-                LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
-            }
-        }
-        InvalidateRect(m_ctx.hWnd, nullptr, FALSE);
-        break;
-    }
     }
 }
 
@@ -290,7 +423,7 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     if (m_ctx.showImageIndex && m_ctx.currentImageIndex >= 0 && !m_ctx.imageFiles.empty()) {
         const std::wstring indexText = std::format(
-            L"{} / {}   Go to...", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size()
+            L"{} / {}   {}", m_ctx.currentImageIndex + 1, m_ctx.imageFiles.size(), Tr(StrId::GoToPage)
         );
         AppendMenuW(hMenu, MF_STRING, IDM_GOTO_INDEX, indexText.c_str());
     }
@@ -309,26 +442,19 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
     addSortItem(IDM_SORT_BY_DATE_DESC, SortCriteria::ByDateModified, false, Tr(StrId::SortDateDesc));
     addSortItem(IDM_SORT_BY_SIZE_ASC, SortCriteria::ByFileSize, true, Tr(StrId::SortSizeAsc));
     addSortItem(IDM_SORT_BY_SIZE_DESC, SortCriteria::ByFileSize, false, Tr(StrId::SortSizeDesc));
-    addSortItem(IDM_SORT_BY_RATING_ASC, SortCriteria::ByRating, true, L"Rating (low to high)");
-    addSortItem(IDM_SORT_BY_RATING_DESC, SortCriteria::ByRating, false, L"Rating (high to low)");
+    addSortItem(IDM_SORT_BY_RATING_ASC, SortCriteria::ByRating, true, Tr(StrId::SortRatingAsc));
+    addSortItem(IDM_SORT_BY_RATING_DESC, SortCriteria::ByRating, false, Tr(StrId::SortRatingDesc));
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hSortMenu, Tr(StrId::SortBy));
 
-    HMENU hRatingMenu = CreatePopupMenu();
-    auto addFilterItem = [&](UINT id, int minRating, LPCWSTR text) {
-        AppendMenuW(
-            hRatingMenu,
-            MF_STRING | (m_ctx.ratingFilter == minRating ? MF_CHECKED : MF_UNCHECKED),
-            id,
-            text
-        );
-        };
-    addFilterItem(IDM_FILTER_RATING_ALL, 0, L"All images");
-    addFilterItem(IDM_FILTER_RATING_1, 1, L"1 star and up");
-    addFilterItem(IDM_FILTER_RATING_2, 2, L"2 stars and up");
-    addFilterItem(IDM_FILTER_RATING_3, 3, L"3 stars and up");
-    addFilterItem(IDM_FILTER_RATING_4, 4, L"4 stars and up");
-    addFilterItem(IDM_FILTER_RATING_5, 5, L"5 stars only");
-    AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hRatingMenu, L"Rating Filter");
+    // Owner-drawn rating strip: hovering previews 0-5 stars, clicking applies
+    MENUITEMINFOW mii{ sizeof(mii) };
+    mii.fMask = MIIM_FTYPE | MIIM_ID;
+    mii.fType = MFT_OWNERDRAW;
+    mii.wID = IDM_RATE_STRIP;
+    m_ctx.menuRatingHover = -1;
+    m_ctx.ratingStripMenu = hMenu;
+    m_ctx.ratingStripPos = GetMenuItemCount(hMenu);
+    InsertMenuItemW(hMenu, m_ctx.ratingStripPos, TRUE, &mii);
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
     HMENU hEditMenu = CreatePopupMenu();
@@ -352,7 +478,7 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
     AppendMenuW(hMenu, MF_POPUP, (UINT_PTR)hViewMenu, Tr(StrId::View));
 
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    addAction(hMenu, IDM_OPEN_EXTERNAL, Act_OpenExternal, L"Open in External Editor");
+    addAction(hMenu, IDM_OPEN_EXTERNAL, Act_OpenExternal, Tr(StrId::OpenExternalEditor));
     addRaw(hMenu, IDM_SAVE, Tr(StrId::Save), L"Ctrl+S");
     addRaw(hMenu, IDM_SAVE_AS, Tr(StrId::SaveAs), L"Ctrl+Shift+S");
     AppendMenuW(hMenu, MF_STRING, IDM_SET_WALLPAPER, Tr(StrId::SetWallpaper));
@@ -374,10 +500,26 @@ void ViewerApp::OnContextMenu(HWND hWnd, POINT pt) {
         CheckMenuItem(hMenu, IDM_SLIDESHOW, MF_BYCOMMAND | MF_CHECKED);
     }
 
+    // Poll the cursor while the menu is open: the menu's modal loop swallows
+    // same-item mouse moves, so a timer is the only way to keep the star
+    // preview following the mouse continuously.
+    SetTimer(hWnd, RATING_STRIP_TIMER_ID, 15, nullptr);
+
     int cmd = TrackPopupMenu(hMenu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, hWnd, nullptr);
+    const int stripHover = m_ctx.menuRatingHover;
+
+    KillTimer(hWnd, RATING_STRIP_TIMER_ID);
+    m_ctx.menuRatingHover = -1;
+    m_ctx.ratingStripMenu = nullptr;
+    m_ctx.ratingStripPos = -1;
     DestroyMenu(hMenu);
 
-    if (cmd > 0) {
+    if (cmd == IDM_RATE_STRIP) {
+        if (stripHover >= 0) {
+            SetCurrentRating(stripHover);
+        }
+    }
+    else if (cmd > 0) {
         HandleCommand(static_cast<WORD>(cmd));
     }
 }
@@ -421,22 +563,23 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         FinalizeImageLoad(true, static_cast<int>(wParam));
         break;
     case WM_APP_IMAGE_LOAD_FAILED:
+        // A failure from a superseded load must leave the current image alone,
+        // otherwise it kills the running animation timer for good.
+        if (lParam != 0 && m_ctx.loadSequenceId != static_cast<int>(lParam)) {
+            break;
+        }
         KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
-        if (lParam != 0) {
-            if (m_ctx.loadSequenceId == (int)lParam) {
-                FinalizeImageLoad(false, -1);
-            }
-        }
-        else {
-            FinalizeImageLoad(false, -1);
-        }
+        FinalizeImageLoad(false, -1);
         break;
 
     case WM_TIMER:
         if (wParam == ANIMATION_TIMER_ID) {
             std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
-            if (m_ctx.isAnimated && !m_ctx.animationFrameDelays.empty()) {
+            if (m_ctx.isAnimated && !m_ctx.isAnimationPaused && !m_ctx.animationFrameDelays.empty()) {
                 const UINT frameCount = static_cast<UINT>(m_ctx.animationFrameDelays.size());
+                if (m_ctx.currentAnimationFrame >= frameCount) {
+                    m_ctx.currentAnimationFrame = 0;
+                }
 
                 UINT currentDelay = m_ctx.animationFrameDelays[m_ctx.currentAnimationFrame];
                 m_ctx.currentAnimationFrame = (m_ctx.currentAnimationFrame + 1) % frameCount;
@@ -449,10 +592,36 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
 
                 UpdateWindowTitle();
                 InvalidateRect(hWnd, nullptr, FALSE);
+                m_ctx.lastAnimationTick = GetTickCount64();
                 if (currentDelay != nextDelay) {
                     KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
                     SetTimer(m_ctx.hWnd, ANIMATION_TIMER_ID, nextDelay, nullptr);
                 }
+            }
+        }
+        else if (wParam == ANIMATION_WATCHDOG_TIMER_ID) {
+            // Safety net: if the animation timer ever goes missing while frames
+            // should still be advancing, put it back instead of freezing.
+            if (!m_ctx.isAnimated || m_ctx.isAnimationPaused || m_ctx.animationFrameDelays.size() < 2 || IsIconic(hWnd)) {
+                if (!m_ctx.isAnimated || m_ctx.animationFrameDelays.size() < 2) {
+                    KillTimer(hWnd, ANIMATION_WATCHDOG_TIMER_ID);
+                }
+                break;
+            }
+            UINT delay = 100;
+            {
+                std::lock_guard<std::recursive_mutex> lock(m_ctx.wicMutex);
+                if (m_ctx.currentAnimationFrame < m_ctx.animationFrameDelays.size()) {
+                    delay = m_ctx.animationFrameDelays[m_ctx.currentAnimationFrame];
+                }
+            }
+            if (delay < 20) delay = 100;
+            const ULONGLONG now = GetTickCount64();
+            if (now - m_ctx.lastAnimationTick > static_cast<ULONGLONG>(delay) * 3 + 1500) {
+                KillTimer(hWnd, ANIMATION_TIMER_ID);
+                SetTimer(hWnd, ANIMATION_TIMER_ID, delay, nullptr);
+                m_ctx.lastAnimationTick = now;
+                InvalidateRect(hWnd, nullptr, FALSE);
             }
         }
         else if (wParam == LOADING_TIMER_ID) {
@@ -471,6 +640,29 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         else if (wParam == SLIDESHOW_TIMER_ID) {
             if (m_ctx.isSlideshowActive) {
                 NavigateImage(1, true);
+            }
+        }
+        else if (wParam == GOTO_CURSOR_TIMER_ID) {
+            if (m_ctx.isGotoInputActive) {
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+            else {
+                KillTimer(hWnd, GOTO_CURSOR_TIMER_ID);
+            }
+        }
+        else if (wParam == RATING_HINT_TIMER_ID) {
+            KillTimer(hWnd, RATING_HINT_TIMER_ID);
+            if (m_ctx.ratingHintValue >= 0) {
+                m_ctx.ratingHintValue = -1;
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+        }
+        else if (wParam == RATING_STRIP_TIMER_ID) {
+            if (m_ctx.ratingStripMenu) {
+                UpdateRatingStripHover();
+            }
+            else {
+                KillTimer(hWnd, RATING_STRIP_TIMER_ID);
             }
         }
         
@@ -536,6 +728,77 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         break;
     case WM_COMMAND:
         HandleCommand(LOWORD(wParam));
+        break;
+    case WM_MEASUREITEM: {
+        MEASUREITEMSTRUCT* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lParam);
+        if (mis->CtlType == ODT_MENU && mis->itemID == IDM_RATE_STRIP) {
+            const float dpiScale = GetDpiForWindow(hWnd) / 96.0f;
+            mis->itemWidth = static_cast<UINT>(MeasureRatingStripWidth());
+            mis->itemHeight = static_cast<UINT>(24 * dpiScale);
+            return TRUE;
+        }
+        break;
+    }
+    case WM_DRAWITEM: {
+        DRAWITEMSTRUCT* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        if (dis->CtlType == ODT_MENU && dis->itemID == IDM_RATE_STRIP) {
+            DrawRatingStrip(dis->hDC, dis->rcItem, (dis->itemState & ODS_SELECTED) != 0);
+            return TRUE;
+        }
+        break;
+    }
+    case WM_KEYDOWN:
+        if (m_ctx.isGotoInputActive) {
+            switch (wParam) {
+            case VK_RETURN: {
+                m_ctx.isGotoInputActive = false;
+                KillTimer(hWnd, GOTO_CURSOR_TIMER_ID);
+                if (!m_ctx.gotoInputText.empty() && !m_ctx.imageFiles.empty()) {
+                    const long total = static_cast<long>(m_ctx.imageFiles.size());
+                    const long target = std::clamp(_wtol(m_ctx.gotoInputText.c_str()), 1L, total);
+                    if (target - 1 != m_ctx.currentImageIndex) {
+                        m_ctx.currentImageIndex = static_cast<int>(target) - 1;
+                        LoadImageFromFile(m_ctx.imageFiles[m_ctx.currentImageIndex]);
+                    }
+                }
+                InvalidateRect(hWnd, nullptr, FALSE);
+                return 0;
+            }
+            case VK_ESCAPE:
+                m_ctx.isGotoInputActive = false;
+                KillTimer(hWnd, GOTO_CURSOR_TIMER_ID);
+                InvalidateRect(hWnd, nullptr, FALSE);
+                return 0;
+            case VK_BACK:
+                if (!m_ctx.gotoInputText.empty()) {
+                    m_ctx.gotoInputText.pop_back();
+                    InvalidateRect(hWnd, nullptr, FALSE);
+                }
+                return 0;
+            default:
+                return 0; // swallow all other keys while typing the page number
+            }
+        }
+        // Menu key / Shift+F10: DefWindowProc would translate these into
+        // WM_CONTEXTMENU, but this WndProc never forwards keydowns to it,
+        // so handle the keyboard invocation here directly.
+        if (wParam == VK_APPS || (wParam == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000))) {
+            RECT rc;
+            GetClientRect(hWnd, &rc);
+            POINT pt = { (rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2 };
+            ClientToScreen(hWnd, &pt);
+            OnContextMenu(hWnd, pt);
+            return 0;
+        }
+        break;
+    case WM_CHAR:
+        if (m_ctx.isGotoInputActive) {
+            if (wParam >= L'0' && wParam <= L'9' && m_ctx.gotoInputText.size() < 9) {
+                m_ctx.gotoInputText += static_cast<wchar_t>(wParam);
+                InvalidateRect(hWnd, nullptr, FALSE);
+            }
+            return 0;
+        }
         break;
     case WM_XBUTTONDOWN: {
         WORD xButton = GET_XBUTTON_WPARAM(wParam);
@@ -621,6 +884,12 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         HandleDropFiles(reinterpret_cast<HDROP>(wParam));
         break;
     case WM_LBUTTONDOWN: {
+        if (m_ctx.isGotoInputActive) {
+            m_ctx.isGotoInputActive = false;
+            KillTimer(hWnd, GOTO_CURSOR_TIMER_ID);
+            InvalidateRect(hWnd, nullptr, FALSE);
+            break;
+        }
         POINT pt = { LOWORD(lParam), HIWORD(lParam) };
         if (m_ctx.isCropMode) {
             m_ctx.isCropPending = false;
@@ -743,11 +1012,11 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         return TRUE;
     }
     case WM_SIZE:
-        if (m_ctx.renderTarget) {
-            if (wParam == SIZE_MINIMIZED) {
-                KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
-            }
-            else {
+        if (wParam == SIZE_MINIMIZED) {
+            KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
+        }
+        else {
+            if (m_ctx.renderTarget) {
                 if (m_ctx.swapChain) {
                     m_ctx.renderTarget->SetTarget(nullptr);
                     m_ctx.swapChain->ResizeBuffers(0, LOWORD(lParam), HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
@@ -758,10 +1027,15 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
                     m_ctx.renderTarget->CreateBitmapFromDxgiSurface(backBuffer.Get(), &bmpProps, &targetBmp);
                     m_ctx.renderTarget->SetTarget(targetBmp.Get());
                 }
-                if (m_ctx.isAnimated && !m_ctx.animationFrameDelays.empty()) {
-                    KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
-                    SetTimer(m_ctx.hWnd, ANIMATION_TIMER_ID, m_ctx.animationFrameDelays[m_ctx.currentAnimationFrame], nullptr);
-                }
+            }
+            // Restarting the animation must not depend on device resources being
+            // alive, and a paused animation stays paused across a resize.
+            if (m_ctx.isAnimated && !m_ctx.isAnimationPaused && !m_ctx.animationFrameDelays.empty()) {
+                const size_t frame = std::min<size_t>(m_ctx.currentAnimationFrame, m_ctx.animationFrameDelays.size() - 1);
+                KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
+                m_ctx.lastAnimationTick = GetTickCount64();
+                SetTimer(m_ctx.hWnd, ANIMATION_TIMER_ID, m_ctx.animationFrameDelays[frame], nullptr);
+                SetTimer(m_ctx.hWnd, ANIMATION_WATCHDOG_TIMER_ID, 1000, nullptr);
             }
         }
         if (wParam != SIZE_MINIMIZED) {
@@ -775,6 +1049,7 @@ LRESULT ViewerApp::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam
         break;
     case WM_DESTROY:
         KillTimer(m_ctx.hWnd, ANIMATION_TIMER_ID);
+        KillTimer(m_ctx.hWnd, ANIMATION_WATCHDOG_TIMER_ID);
         KillTimer(m_ctx.hWnd, AUTO_REFRESH_TIMER_ID);
         if (m_ctx.hPropsWnd) {
             DestroyWindow(m_ctx.hPropsWnd);
